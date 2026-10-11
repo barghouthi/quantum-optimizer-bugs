@@ -138,7 +138,8 @@ The two denominators are coprime. Their product is 2⁶⁴ − 1.
 This value exceeds the signed 64-bit integer limit.
 The addition overflows and returns zero, so the rotation disappears.
 
-**Measurement:** the +1 probability changes from **≈1.33758 × 10⁻¹⁷% to 100%**.
+**Measurement:** the +1 probability changes from **almost 0% to 100%**.
+The expected probability is approximately `1.33758e-19`.
 The error is approximately **100 pp**.
 
 **Other tools, same input:** Qiskit, PennyLane, Cirq, BQSKit, and tket preserve this rotation.
