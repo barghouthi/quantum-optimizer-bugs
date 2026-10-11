@@ -108,6 +108,15 @@ to disappear. This is an **integer overflow during optimization**.
 Measuring X changes P(+1) from **≈1.33758 × 10⁻¹⁷% to 100%**: approximately
 **100 pp**.
 
+**Same-input cross-check:** Qiskit, PennyLane, Cirq, BQSKit, and tket preserve
+the near-Z rotation when given this exact QASM and run through the passes used
+in this script. Their measurement discrepancies are below **2 × 10⁻²³ pp**.
+Qiskit's `Optimize1qGatesDecomposition` and tket's `SquashTK1` also preserve it.
+PyZX 0.9.0 rounds both imported phases to ½, then `full_reduce` produces Z:
+its tiny import approximation changes the probability by **≈1.34 × 10⁻¹⁷ pp**.
+Only QuiZX produces identity in these checks; this does not rule out other
+inputs exposing arithmetic problems in the other tools.
+
 ### tket: 100 pp
 
 ```text
