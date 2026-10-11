@@ -1,8 +1,10 @@
 # quantum-optimizer-bugs
 
-Six OpenQASM circuits whose optimization erases a substantial rotation
-and produces the identity circuit. The resulting measurement probabilities change
-by **42 to 100 percentage points**. One standalone script reproduces all six:
+This script runs six OpenQASM circuits through quantum circuit optimizers.
+Each optimizer removes a rotation that affects the measurement result.
+The errors range from **99.5 to 100 percentage points**.
+
+Run all six examples:
 
 ```sh
 uv run bugs.py
@@ -10,151 +12,176 @@ uv run bugs.py
 
 ## How bad are the outputs?
 
-For every example, prepare
+For each example, prepare **|+⟩ = (|0⟩ + |1⟩)/√2**.
+Apply the circuit. Then measure X.
+Compare the expected probability of the **+1** outcome with the output probability.
 
-$$
-|+\rangle = \frac{|0\rangle + |1\rangle}{\sqrt{2}},
-$$
+Measuring X distinguishes two states:
 
-apply the circuit, then measure the indicated Pauli observable. The table compares
-the probability of outcome **+1** for the ideal input circuit and the actual
-output circuit.
+- **|+⟩ = (|0⟩ + |1⟩)/√2** gives outcome **+1**.
+- **|−⟩ = (|0⟩ − |1⟩)/√2** gives outcome **−1**.
 
-**Percentage points (pp)** are the absolute difference between the probabilities:
-0% → 100% is a 100 pp change. These are concrete measurement witnesses, selected
-from X and Y measurements, rather than a search over all states and measurements.
+To measure X with a standard Z measurement, apply H first.
+A measured bit of 0 means +1. A measured bit of 1 means −1.
+The script calculates these probabilities from the circuit matrix.
+It does not sample measurement outcomes.
 
-$$
-\text{error (pp)} = 100\left|\Pr_{\mathrm{ideal}}(+1) - \Pr_{\mathrm{output}}(+1)\right|.
-$$
+The error is the absolute probability difference, in **percentage points (pp)**:
 
-| Tool / tested version | Measure | Ideal probability | Output probability | Change | Error occurs during |
-|---|---|---:|---:|---:|---|
-| Qiskit 2.5.1 | X | 0% | 100% | **100 pp** | Optimization |
-| PennyLane 0.45.1 | X | 0.500375% | 100% | **99.499625 pp** | Optimization |
-| Cirq 1.7.0 | X | 0% | 100% | **100 pp** | Optimization |
-| BQSKit 1.2.1 | Y | 92.073549% | 50% | **42.073549 pp** | Local approximation |
-| QuiZX 0.3.0 | X | ≈0% | 100% | **≈100 pp** | Optimization |
-| tket 2.18.5 | X | 0% | 100% | **100 pp** | Optimization |
+```text
+error (pp) = 100 × |expected probability − output probability|
+```
+
+The formula uses probabilities between 0 and 1.
+For example, a change from 0% to 100% is a **100 pp** error.
+
+| Tool / tested version | Expected +1 probability | Output +1 probability | Error | Cause |
+|---|---:|---:|---:|---|
+| Qiskit 2.5.1 | 0% | 100% | **100 pp** | Floating-point addition |
+| PennyLane 0.45.1 | 0.500375% | 100% | **99.499625 pp** | Floating-point addition |
+| Cirq 1.7.0 | 0% | 100% | **100 pp** | Floating-point addition |
+| BQSKit 1.2.1 | 0% | 100% | **100 pp** | Repeated small approximations |
+| QuiZX 0.3.0 | ≈0% | 100% | **≈100 pp** | Integer overflow |
+| tket 2.18.5 | 0% | 100% | **100 pp** | Rotation removed during optimization |
 
 ## Input and output for each tool
 
-Circuits below execute left to right. Angles are in radians; `pi` in QASM means
-mathematical $\pi$. $R_z(a)$ is a Z rotation.
-Expected unitaries are stated up to global phase. All six actual outputs are
-the **identity**: the circuit's action has been erased.
+The input gates below execute from left to right.
+`RZ(a)` is a Z rotation by angle `a`, in radians.
+The QASM symbol `pi` means mathematical π.
+
+All six output circuits act as **identity**. They leave the prepared state unchanged.
+Gate comparisons below ignore global phase, which does not affect measurement probabilities.
 
 ### Qiskit: 100 pp
 
-$$
-R_z(10^{17})\,;\,R_z(\pi)\,;\,R_z(-10^{17})
-$$
+```text
+RZ(1e17); RZ(pi); RZ(-1e17)
+```
 
-**Expected:** $R_z(\pi)$, equivalent to $Z$. **Actual:** identity after
-`CommutativeCancellation(basis_gates=["rz"])`. The two large angles are
-exactly representable as binary64 numbers, and import preserves the middle
-rotation. Floating-point angle addition rounds $10^{17} + \pi$ back to $10^{17}$,
-then adding $-10^{17}$ gives zero.
+**Expected:** RZ(pi), equivalent to Z.
 
-Measuring X changes $\Pr(+1)$ from **0% to 100%**. Standard `transpile` also
-reproduces the error at optimization levels 2 and 3 with
-`basis_gates=["rz", "sx", "x", "cx"]`; level 1 preserves the Z rotation.
+**Output:** identity after `CommutativeCancellation(basis_gates=["rz"])`.
+
+**Cause:** floating-point addition loses the middle rotation.
+Both large angles are exact 64-bit floating-point values.
+QASM import preserves the middle rotation.
+The pass rounds `1e17 + pi` back to `1e17`.
+It then adds `-1e17` and gets zero.
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+Standard `transpile` also produces this error at optimization levels 2 and 3.
+These checks use `basis_gates=["rz", "sx", "x", "cx"]`.
+Level 1 preserves the Z rotation.
 
 ### PennyLane: 99.499625 pp
 
-$$
-R_z(10^{16})\,;\,R_z(1)\,;\,R_z(1)\,;\,R_z(1)\,;\,R_z(-10^{16})
-$$
+```text
+RZ(1e16); RZ(1); RZ(1); RZ(1); RZ(-1e16)
+```
 
-**Expected:** $R_z(3)$, because the large positive and negative angles cancel.
-**Actual:** identity after `merge_rotations(atol=0)`. Floating-point addition
-loses the three one-radian contributions while merging the angles.
+**Expected:** RZ(3), because the large positive and negative angles cancel.
 
-Measuring X changes $\Pr(+1)$ from **0.500375% to 100%**.
-The QASM is parsed with Qiskit and adapted to native PennyLane RZ operations
-before running the PennyLane optimization.
+**Output:** identity after `merge_rotations(atol=0)`.
+
+**Cause:** floating-point addition loses each of the three one-radian rotations.
+The large positive and negative angles then cancel.
+
+**Measurement:** the +1 probability changes from **0.500375% to 100%**.
+
+Qiskit parses the QASM input.
+The script converts the parsed gates to PennyLane RZ gates.
+PennyLane then runs the optimization.
 
 ### Cirq: 100 pp
 
-$$
-R_z(10^{16}\pi)\,;\,R_z(\pi)\,;\,R_z(-10^{16}\pi)
-$$
+```text
+RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)
+```
 
-**Expected:** $R_z(\pi)$, equivalent to $Z$. **Actual:** identity after `eject_z(atol=0)`.
-The importer preserves the rotation; adding the large exponents during
-optimization loses the middle Z.
+**Expected:** RZ(pi), equivalent to Z.
 
-Measuring X changes $\Pr(+1)$ from **0% to 100%**: the two circuits give opposite
-outcomes with certainty.
+**Output:** identity after `eject_z(atol=0)`.
 
-### BQSKit: 42.073549 pp
+**Cause:** the pass combines large rotation exponents with floating-point addition.
+It loses the middle rotation. QASM import preserves that rotation.
 
-$$
-\left[R_z(10^{-4})\right]\times 10{,}000
-$$
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+### BQSKit: 100 pp
+
+```text
+[RZ(pi/12000)] × 12,000
+```
 
 Each rotation is in its own one-gate block.
+The rotations add up to pi.
 
-**Expected:** $R_z(\theta)$ with $\theta \approx 1$. **Actual:** identity after
-`ForEachBlockPass(ScanningGateRemovalPass())` followed
-by `UnfoldPass`. Each block's small rotation is removed independently.
+**Expected:** RZ(pi), equivalent to Z.
 
-Measuring Y changes $\Pr(+1)$ from **92.073549% to 50%**.
-This is an explicitly configured approximation workflow: accepted local errors
-accumulate into a large circuit error.
+**Output:** identity after `ForEachBlockPass(ScanningGateRemovalPass())`, then `UnfoldPass`.
+
+**Cause:** the selected passes permit small errors in each block.
+`ScanningGateRemovalPass` uses its default threshold of `1e-8`.
+It removes each small rotation separately.
+Across 12,000 blocks, these errors add up to a large error.
+This example uses an optimization workflow that permits approximation.
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
 
 ### QuiZX: approximately 100 pp
 
-$$
-R_z\!\left(\frac{2147483647\pi}{4294967295}\right)\,;\,
-R_z\!\left(\frac{2147483648\pi}{4294967297}\right)
-$$
+```text
+RZ(2147483647*pi/4294967295); RZ(2147483648*pi/4294967297)
+```
 
-**Expected:** a rotation almost exactly equal to $Z$:
+**Expected:** RZ(pi × (1 − 2³²/(2⁶⁴ − 1))), almost exactly Z.
+Both input angles are close to pi/2.
 
-$$
-R_z\!\left(\pi\left(1 - \frac{2^{32}}{2^{64} - 1}\right)\right).
-$$
+**Output:** identity after `full_simp`.
 
-Both input angles are close to $\pi/2$. **Actual:** identity after `full_simp`.
+**Cause:** integer overflow during phase addition.
+QASM import preserves both rational phases exactly.
+The script checks them before optimization.
+QuiZX adds the phases with signed 64-bit rational arithmetic.
+The two denominators are coprime. Their product is 2⁶⁴ − 1.
+This value exceeds the signed 64-bit integer limit.
+The addition overflows and returns zero, so the rotation disappears.
 
-QASM import preserves both rational phases exactly; the script checks them
-before simplifying. Phase fusion adds them using 64-bit rational arithmetic.
-Their coprime denominators have least common multiple $2^{64} - 1$, which exceeds
-the signed 64-bit range. Overflow causes the sum to become zero and the rotation
-to disappear. This is an **integer overflow during optimization**.
+**Measurement:** the +1 probability changes from **≈1.33758 × 10⁻¹⁷% to 100%**.
+The error is approximately **100 pp**.
 
-Measuring X changes $\Pr(+1)$ from $\approx 1.33758 \times 10^{-17}\%$ to
-**100%**: approximately **100 pp**.
+**Other tools, same input:** Qiskit, PennyLane, Cirq, BQSKit, and tket preserve this rotation.
+Each error is below **2 × 10⁻²³ pp**.
+These checks use the same QASM and the passes in this script.
+Qiskit's `Optimize1qGatesDecomposition` and tket's `SquashTK1` also preserve the rotation.
 
-**Same-input cross-check:** Qiskit, PennyLane, Cirq, BQSKit, and tket preserve
-the near-Z rotation when given this exact QASM and run through the passes used
-in this script. Their measurement discrepancies are below $2 \times 10^{-23}$ pp.
-Qiskit's `Optimize1qGatesDecomposition` and tket's `SquashTK1` also preserve it.
-PyZX 0.9.0 rounds both imported phases to $1/2$, then `full_reduce` produces $Z$:
-its tiny import approximation changes the probability by
-$\approx 1.34 \times 10^{-17}$ pp.
-Only QuiZX produces identity in these checks; this does not rule out other
-inputs exposing arithmetic problems in the other tools.
+PyZX 0.9.0 rounds both imported phases to 1/2.
+Its `full_reduce` pass produces Z.
+This import approximation causes an error of **≈1.34 × 10⁻¹⁷ pp**.
+Only QuiZX produces identity for this input in these checks.
 
 ### tket: 100 pp
 
-$$
-R_z(10^{16}\pi)\,;\,R_z(\pi)\,;\,R_z(-10^{16}\pi)
-$$
+```text
+RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)
+```
 
-**Expected:** $R_z(\pi)$, equivalent to $Z$. **Actual:** identity after
-`RemoveRedundancies`. QASM import retains the middle rotation; the optimization
-pass erases it.
+**Expected:** RZ(pi), equivalent to Z.
 
-Measuring X changes $\Pr(+1)$ from **0% to 100%**: the two circuits give opposite
-outcomes with certainty.
+**Output:** identity after `RemoveRedundancies`.
+
+**Cause:** the optimization pass removes the middle rotation.
+QASM import preserves that rotation.
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
 
 ## Run the examples
 
-[uv](https://docs.astral.sh/uv/) installs the dependencies declared in `bugs.py`
-and uses Python 3.12. The first run installs the quantum frameworks; later runs
-reuse its cache. Every tool receives a circuit parsed from OpenQASM 2.0.
+[uv](https://docs.astral.sh/uv/) uses Python 3.12 and installs the packages listed in `bugs.py`.
+Later runs reuse the installed packages.
+Every example starts with an OpenQASM 2.0 circuit.
 
 ```sh
 # All six examples
@@ -164,28 +191,13 @@ uv run bugs.py
 uv run bugs.py --tools pennylane cirq quizx tket
 ```
 
-BQSKit's 10,000 separate block optimizations dominate runtime. Its large circuit
-demonstrates accumulated error; the other examples use at most five gates.
+The BQSKit example takes the most time because it optimizes 12,000 separate blocks.
+The other examples use at most five gates.
 
 ## How the expected probabilities are checked
 
-The expected rotations are derived analytically, using exact rational arithmetic
-for numeric angles and mathematical $\pi$. The QASM literal for `1e-4` spells out
-its exact stored binary64 value. The reference does not use a framework's
-floating-point matrix as the ideal answer.
-
-Ideal probabilities are evaluated at 100 decimal digits. Output probabilities
-are calculated from each tool's native output matrix. The script prints only
-the input, expected rotation, output, measurement probabilities, and their
-absolute difference in percentage points. The displayed percentages are rounded.
-
-The tests check the ideal probabilities at 100 and 160 digits for agreement
-within absolute $10^{-70}$ and compare the QuiZX reference with an independent
-matrix calculation. When Qiskit and QuiZX are installed, they also check import
-and optimization separately.
-
-Run the small reference tests with:
-
-```sh
-uv run --with mpmath==1.3.0 python -m unittest discover -s tests -v
-```
+The reference calculation uses exact fractions for numeric angles and mathematical π.
+It derives the expected rotation from the input gates.
+The script calculates expected probabilities at 100 decimal digits.
+It calculates output probabilities from each tool's output matrix.
+It rounds the percentages for display.

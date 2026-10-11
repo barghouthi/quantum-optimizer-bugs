@@ -7,11 +7,10 @@
 #   "pyzx==0.9.0", "pytket==2.18.5", "mpmath==1.3.0", "ply==3.11",
 # ]
 # ///
-"""Six QASM reproducers. Compare P(+1) after preparing |+> and measuring X or Y."""
+"""Six QASM reproducers. Compare P(+1) after preparing |+> and measuring X."""
 
 import argparse
 import math
-from decimal import Decimal
 from fractions import Fraction
 
 import mpmath as mp
@@ -21,19 +20,14 @@ TOOLS = ("qiskit", "pennylane", "cirq", "bqskit", "quizx", "tket")
 mp.mp.dps = 100
 
 
-def literal(value):
-    return format(Decimal.from_float(value), "f")
-
-
 def examples():
     rotations = "rz(10000000000000000*pi) q[0];\nrz(pi) q[0];\nrz(-10000000000000000*pi) q[0];\n"
     return {
-        # tool: (QASM, exact ideal angle, measurement, readable input, ideal output)
+        # tool: (QASM, exact ideal angle, readable input, ideal output)
         "qiskit": (
             HEADER
             + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
             "pi",
-            "X",
             "RZ(1e17); RZ(pi); RZ(-1e17)",
             "Z",
         ),
@@ -42,45 +36,40 @@ def examples():
             + "qreg q[1];\n"
             + "".join(f"rz({a}) q[0];\n" for a in (10**16, 1, 1, 1, -(10**16))),
             Fraction(3),
-            "X",
             "RZ(1e16); RZ(1); RZ(1); RZ(1); RZ(-1e16)",
             "RZ(3)",
         ),
         "cirq": (
             HEADER + "qreg q[1];\n" + rotations,
             "pi",
-            "X",
             "RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)",
             "Z",
         ),
         "bqskit": (
             HEADER
             + "gate audit_block(a) q { rz(a) q; }\nqreg q[1];\n"
-            + f"audit_block({literal(1e-4)}) q[0];\n" * 10_000,
-            Fraction(1e-4) * 10_000,
-            "Y",
-            "RZ(1e-4) x 10,000; one gate per block",
-            "RZ(~1)",
+            + "audit_block(pi/12000) q[0];\n" * 12_000,
+            "pi",
+            "RZ(pi/12000) x 12,000; one gate per block",
+            "Z",
         ),
         "quizx": (
             HEADER
             + "qreg q[1];\nrz(2147483647*pi/4294967295) q[0];\nrz(2147483648*pi/4294967297) q[0];\n",
             lambda: mp.pi * (1 - mp.mpf(2**32) / (2**64 - 1)),
-            "X",
             "RZ(2147483647*pi/4294967295); RZ(2147483648*pi/4294967297)",
             "RZ(~pi)",
         ),
         "tket": (
             HEADER + "qreg q[1];\n" + rotations,
             "pi",
-            "X",
             "RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)",
             "Z",
         ),
     }
 
 
-def ideal_probability(angle, axis):
+def ideal_probability(angle):
     theta = (
         angle()
         if callable(angle)
@@ -88,14 +77,13 @@ def ideal_probability(angle, axis):
         if angle == "pi"
         else mp.mpf(angle.numerator) / angle.denominator
     )
-    return (1 + (mp.cos(theta) if axis == "X" else mp.sin(theta))) / 2
+    return (1 + mp.cos(theta)) / 2
 
 
-def output_probability(unitary, axis):
-    # <+|U|+> or <+Y|U|+>; square the amplitude for outcome +1.
-    a = (unitary[0, 0] + unitary[0, 1]) / 2
-    b = (unitary[1, 0] + unitary[1, 1]) / 2
-    probability = float(abs(a + (b if axis == "X" else -1j * b)) ** 2)
+def output_probability(unitary):
+    # <+|U|+>; square the amplitude for outcome +1.
+    amplitude = sum(unitary[i, j] for i in range(2) for j in range(2)) / 2
+    probability = float(abs(amplitude) ** 2)
     if not math.isfinite(probability):
         raise ValueError("Nonfinite output probability")
     return probability
@@ -179,18 +167,18 @@ def main(argv=None):
     parser.add_argument("--tools", nargs="+", choices=TOOLS, default=TOOLS)
     args = parser.parse_args(argv)
     cases = examples()
-    print("Prepare |+>; measure X or Y. Compare probability of outcome +1.")
+    print("Prepare |+>; measure X. Compare probability of outcome +1.")
     for tool in dict.fromkeys(args.tools):
-        source, angle, axis, description, expected = cases[tool]
+        source, angle, description, expected = cases[tool]
         print(f"\n{tool}\n  Input:    {description}", flush=True)
         unitary, count = optimize(tool, source)
-        ideal = ideal_probability(angle, axis)
-        actual = output_probability(unitary, axis)
+        ideal = ideal_probability(angle)
+        actual = output_probability(unitary)
         print(
             f"  Expected: {expected}; output: {'identity' if count == 0 else f'{count} gates'}"
         )
         print(
-            f"  Measure {axis}: expected {float(100 * ideal):.6f}% -> output {100 * actual:.6f}%"
+            f"  Measure X: expected {float(100 * ideal):.6f}% -> output {100 * actual:.6f}%"
         )
         print(f"  Change:   {float(100 * abs(ideal - actual)):.6f} percentage points")
 
