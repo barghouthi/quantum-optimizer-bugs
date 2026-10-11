@@ -161,23 +161,6 @@ QASM import preserves that rotation.
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
-## Run the examples
-
-[uv](https://docs.astral.sh/uv/) uses Python 3.12 and installs the packages listed in `bugs.py`.
-Later runs reuse the installed packages.
-Every example starts with an OpenQASM 2.0 circuit.
-
-```sh
-# All six examples
-uv run bugs.py
-
-# Select tools
-uv run bugs.py --tools pennylane cirq quizx tket
-```
-
-The BQSKit example takes the most time because it optimizes 12,000 separate blocks.
-The other examples use at most five gates.
-
 ## How the expected probabilities are checked
 
 The reference calculation uses exact fractions for numeric angles and mathematical π.

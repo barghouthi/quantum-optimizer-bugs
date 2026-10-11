@@ -9,14 +9,12 @@
 # ///
 """Six QASM reproducers. Compare P(+1) after preparing |+> and measuring X."""
 
-import argparse
 import math
 from fractions import Fraction
 
 import mpmath as mp
 
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
-TOOLS = ("qiskit", "pennylane", "cirq", "bqskit", "quizx", "tket")
 mp.mp.dps = 100
 
 
@@ -162,14 +160,9 @@ def optimize(tool, source):
     return circuit.get_unitary(), circuit.n_gates
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tools", nargs="+", choices=TOOLS, default=TOOLS)
-    args = parser.parse_args(argv)
-    cases = examples()
+def main():
     print("Prepare |+>; measure X. Compare probability of outcome +1.")
-    for tool in dict.fromkeys(args.tools):
-        source, angle, description, expected = cases[tool]
+    for tool, (source, angle, description, expected) in examples().items():
         print(f"\n{tool}\n  Input:    {description}", flush=True)
         unitary, count = optimize(tool, source)
         ideal = ideal_probability(angle)
