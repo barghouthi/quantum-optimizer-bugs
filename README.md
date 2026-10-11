@@ -3,22 +3,23 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/badge/uv-run-DE5FE9?logo=uv&logoColor=2C1A47)](https://docs.astral.sh/uv/)
 
-Across many quantum SDKs and optimization tools, we find bugs that change expected measurement outcomes. This repository provides six
-OpenQASM examples that reproduce these errors. Each example demonstrates a completely flipped measurement outcome.
-
 > [!WARNING]
-> **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in unsound optimization of quantum circuits.**
+> **Optimization and mapping change a certain or almost-certain −1 outcome into a certain or almost-certain +1 outcome in these examples.**
 
-Run all six examples:
+Across several quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
+This repository provides seven OpenQASM examples that reproduce these errors.
+Each example shows an almost completely flipped measurement outcome.
+
+Run all seven examples with the locked dependencies:
 
 ```sh
-uv run bugs.py
+uv run --locked bugs.py
 ```
 
 ## How bad are the outputs?
 
-For each example, prepare `|+>`.
-Apply the circuit. Then measure in the X basis.
+For each example, prepare every qubit in `|+>`.
+Apply the circuit. Then measure `q[0]` in the X basis.
 Compare the expected probability of the **+1** outcome with the output probability.
 
 The error is the absolute probability difference, in **percentage points (pp)**:
@@ -28,18 +29,19 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 | Qiskit 2.5.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | PennyLane 0.45.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | Cirq 1.7.0 | 0% | 100% | **100 pp** | Floating-point addition |
-| BQSKit 1.2.1 | 0% | 100% | **100 pp** | Repeated small approximations |
+| BQSKit 1.2.1 | 0% | 99.998558% | **99.998558 pp** | Incorrect qubit ordering |
 | QuiZX 0.3.0 | ≈0% | 100% | **≈100 pp** | Integer overflow |
-| tket 2.18.5 | 0% | 100% | **100 pp** | Rotation removed during optimization |
+| tket 2.18.5 | 0% | 100% | **100 pp** | Floating-point addition |
+| MQT QMAP 3.10.0 / Core 3.10.1 | 0% | 100% | **100 pp** | Unsupported gate silently replaced |
 
 ## Input and output for each tool
 
 The input gates below execute from left to right.
 `rz(a)` is a Z rotation by angle `a`, in radians.
 
-In all six examples, the circuit produced by the optimizer acts as **identity**.
+The optimized circuits act as **identity** in five examples.
+BQSKit and MQT QMAP produce different incorrect circuits.
 None of the input circuits is equivalent to identity.
-For example, PennyLane's input equals Z, but its optimized output is identity.
 Gate comparisons below ignore global phase, which does not affect measurement probabilities.
 
 ### Qiskit: 100 pp
@@ -59,10 +61,6 @@ The pass rounds `1e17 + pi` back to `1e17`.
 It then adds `-1e17` and gets zero.
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
-
-Standard `transpile` also produces this error at optimization levels 2 and 3.
-These checks use `basis_gates=["rz", "sx", "x", "cx"]`.
-Level 1 preserves the Z rotation.
 
 ### PennyLane: 100 pp
 
@@ -98,26 +96,30 @@ It loses the middle rotation. QASM import preserves that rotation.
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
-### BQSKit: 100 pp
+### BQSKit: 99.998558 pp
 
-```text
-[rz(pi/12000)] × 12,000
+```qasm
+gate g(a) x,y { rz(a) x; id y; }
+qreg q[2];
+g(0) q[1],q[0];
+g(pi) q[0],q[1];
 ```
 
-Each rotation is in its own one-gate block.
-The rotations add up to pi.
+The first block is identity. The second applies Z to `q[0]`.
 
-**Expected:** rz(pi), equivalent to Z.
+**Expected:** Z on `q[0]` and identity on `q[1]`.
 
-**Output:** identity after `ForEachBlockPass(ScanningGateRemovalPass())`, then `UnfoldPass`.
+**Output:** an incorrect two-qubit circuit after `BlockConversionPass("variable")`
+and `ExtractDiagonalPass`.
 
-**Cause:** the selected passes permit small errors in each block.
-`ScanningGateRemovalPass` uses its default threshold of `1e-8`.
-It removes each small rotation separately.
-Across 12,000 blocks, these errors add up to a large error.
-This example uses an optimization workflow that permits approximation.
+**Cause:** the extraction pass moves a diagonal phase from the second block into
+the first without remapping their different qubit orderings.
+The script uses a local cost threshold of `1e-12`, seed `75`, and one synthesis start.
+The large error appears when the phase is merged into the other block.
+Using the same qubit ordering in both blocks preserves the result.
+The incorrect merge is in [ExtractDiagonalPass](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/extract_diagonal.py).
 
-**Measurement:** the +1 probability changes from **0% to 100%**.
+**Measurement:** the +1 probability changes from **0% to 99.998558%**.
 
 ### QuiZX: approximately 100 pp
 
@@ -142,16 +144,6 @@ The addition overflows and returns zero, so the rotation disappears.
 The expected probability is approximately `1.33758e-19`.
 The error is approximately **100 pp**.
 
-**Other tools, same input:** Qiskit, PennyLane, Cirq, BQSKit, and tket preserve this rotation.
-Each error is below **2 × 10⁻²³ pp**.
-These checks use the same QASM and the passes in this script.
-Qiskit's `Optimize1qGatesDecomposition` and tket's `SquashTK1` also preserve the rotation.
-
-PyZX 0.9.0 rounds both imported phases to 1/2.
-Its `full_reduce` pass produces Z.
-This import approximation causes an error of **≈1.34 × 10⁻¹⁷ pp**.
-Only QuiZX produces identity for this input in these checks.
-
 ### tket: 100 pp
 
 ```text
@@ -162,15 +154,51 @@ rz(1e16*pi); rz(pi); rz(-1e16*pi)
 
 **Output:** identity after `RemoveRedundancies`.
 
-**Cause:** the optimization pass removes the middle rotation.
+**Cause:** floating-point addition loses the middle rotation.
+tket stores these angles in half-turns: `1e16`, `1`, and `-1e16`.
+Adding `1e16 + 1` rounds back to `1e16`. Adding `-1e16` then gives zero.
 QASM import preserves that rotation.
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+### MQT QMAP: 100 pp
+
+```text
+crz(2*pi) q[0],q[1]
+```
+
+**Expected:** Z on the control `q[0]` and identity on the target `q[1]`.
+A full 2*pi RZ rotation is −identity. Controlling it makes that minus sign a Z gate on the control.
+
+**Output:** `cx q[0],q[1]` after native `mqt.qmap.sc.map_` on two connected qubits.
+CNOT leaves `|++>` unchanged.
+
+**Cause:** the native mapper assumes that every controlled gate is a CNOT.
+It accepts the unsupported CRZ gate and silently emits a CNOT in the release build.
+The input retains the correct CRZ semantics in MQT Core before mapping.
+This is an input-validation failure in the native mapper; it also occurs with its optional optimizations disabled.
+The native mapper expects two-qubit gates to be lowered to CNOTs first.
+The bug is that it returns a wrong circuit instead of rejecting the unsupported gate.
+The Qiskit `compile_` wrapper in this version also accepts it and emits a CNOT.
+This example does not test MQT Core 4's compiler pipeline.
+See the related [upstream limitation](https://github.com/munich-quantum-toolkit/qmap/issues/843)
+and [mapper source](https://github.com/munich-quantum-toolkit/qmap/blob/v3.10.0/src/sc/Mapper.cpp).
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
 ## How the expected probabilities are checked
 
-The reference calculation uses exact fractions for numeric angles and mathematical π.
-It derives the expected rotation from the input gates.
-The script calculates expected probabilities at 100 decimal digits.
+The reference reads each QASM input independently of the tool being tested.
+It expands the BQSKit block and computes the diagonal phases with exact rational numbers and mathematical π.
+It supports only the gates in these fixtures and rejects other gates.
+It then calculates the expected X measurement probability at 100 decimal digits.
 It calculates output probabilities from each tool's output matrix.
-It rounds the percentages for display.
+It accounts for the tools' different qubit orderings and rounds percentages for display.
+
+The script prints whether each error exceeds 99 pp and exits with a failure if any example does not reproduce.
+`bugs.py.lock` pins both direct and indirect dependencies.
+
+The large-angle examples use finite, legal QASM angles to expose lost rotations.
+An optimizer should preserve their measurement probabilities or reject inputs it cannot handle reliably.
+
+Released under the [MIT license](LICENSE).

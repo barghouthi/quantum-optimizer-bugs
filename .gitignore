@@ -2,5 +2,3 @@ __pycache__/
 *.pyc
 .venv/
 .ruff_cache/
-results.json
-qasm-inputs/
