@@ -2,6 +2,9 @@
 
 This script runs six OpenQASM circuits through quantum circuit optimizers.
 Each optimizer removes a rotation that affects the measurement result.
+
+> **Optimization changes an almost-certain −1 outcome into a certain +1 outcome.**
+
 The errors range from approximately **99.5 to 100 percentage points**.
 
 Run all six examples:
@@ -16,8 +19,6 @@ For each example, prepare `|+>`.
 Apply the circuit. Then measure in the X basis.
 Compare the expected probability of the **+1** outcome with the output probability.
 
-In every example, the dominant measurement outcome changes from **−1 to +1**.
-The expected outcome is almost certainly −1. After optimization, it is certainly +1.
 Five examples have approximately **100 pp** of error.
 PennyLane has **99.499625 pp**, because its expected +1 probability is slightly above zero.
 
