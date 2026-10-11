@@ -26,21 +26,16 @@ def literal(value):
 
 
 def examples():
-    d = literal(3e-6)
-    echo = f"gate echo q {{ p({d}) q; p({d}) q; x q; p(-{d}) q; p(-{d}) q; x q; }}\n"
     rotations = "rz(10000000000000000*pi) q[0];\nrz(pi) q[0];\nrz(-10000000000000000*pi) q[0];\n"
     return {
         # tool: (QASM, exact ideal angle, measurement, readable input, ideal output)
         "qiskit": (
             HEADER
-            + "gate p(a) q { u1(a) q; }\n"
-            + echo
-            + "qreg q[1];\n"
-            + "echo q[0];\n" * 100_000,
-            Fraction(3e-6) * 400_000,
-            "Y",
-            "[P(d); P(d); X; P(-d); P(-d); X] x 100,000; d=3e-6",
-            "RZ(~1.2)",
+            + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
+            "pi",
+            "X",
+            "RZ(1e17); RZ(pi); RZ(-1e17)",
+            "Z",
         ),
         "pennylane": (
             HEADER
@@ -108,13 +103,8 @@ def output_probability(unitary, axis):
 
 def qiskit_load(source):
     from qiskit import qasm2
-    from qiskit.circuit.library import PhaseGate
 
-    instructions = [i for i in qasm2.LEGACY_CUSTOM_INSTRUCTIONS if i.name != "p"]
-    instructions.append(qasm2.CustomInstruction("p", 1, 1, PhaseGate))
-    return qasm2.loads(source, custom_instructions=instructions).decompose(
-        gates_to_decompose=["echo"]
-    )
+    return qasm2.loads(source)
 
 
 def optimize(tool, source):
@@ -122,14 +112,11 @@ def optimize(tool, source):
     if tool == "qiskit":
         from qiskit.quantum_info import Operator
         from qiskit.transpiler import PassManager
-        from qiskit.transpiler.passes import (
-            CommutativeCancellation,
-            InverseCancellation,
-        )
+        from qiskit.transpiler.passes import CommutativeCancellation
 
-        output = PassManager(
-            [CommutativeCancellation(basis_gates=["p", "x"]), InverseCancellation()]
-        ).run(qiskit_load(source))
+        output = PassManager([CommutativeCancellation(basis_gates=["rz"])]).run(
+            qiskit_load(source)
+        )
         return Operator(output).data, len(output.data)
     if tool == "pennylane":
         import pennylane as qml

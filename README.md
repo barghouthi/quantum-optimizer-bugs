@@ -20,7 +20,7 @@ from X and Y measurements, rather than a search over all states and measurements
 
 | Tool / tested version | Measure | Ideal probability | Output probability | Change | Error occurs during |
 |---|---|---:|---:|---:|---|
-| Qiskit 2.5.1 | Y | 96.601954% | 50% | **46.601954 pp** | Optimization |
+| Qiskit 2.5.1 | X | 0% | 100% | **100 pp** | Optimization |
 | PennyLane 0.45.1 | X | 0.500375% | 100% | **99.499625 pp** | Optimization |
 | Cirq 1.7.0 | X | 0% | 100% | **100 pp** | Optimization |
 | BQSKit 1.2.1 | Y | 92.073549% | 50% | **42.073549 pp** | Local approximation |
@@ -30,23 +30,25 @@ from X and Y measurements, rather than a search over all states and measurements
 ## Input and output for each tool
 
 Circuits below execute left to right. Angles are in radians; `pi` means
-mathematical π. `P(a) = diag(1, exp(i*a))` is a phase gate; `RZ(a)` is a Z rotation.
+mathematical π. `RZ(a)` is a Z rotation.
 Expected unitaries are stated up to global phase. All six actual outputs are
 the **identity**: the circuit's action has been erased.
 
-### Qiskit: 46.601954 pp
+### Qiskit: 100 pp
 
 ```text
-[P(d); P(d); X; P(-d); P(-d); X] × 100,000
-d = 3e-6
+RZ(1e17); RZ(pi); RZ(-1e17)
 ```
 
-**Expected:** RZ(≈1.2). Each six-gate block implements RZ(4d), so the small
-rotations accumulate into a substantial rotation across 600,000 gates.
-**Actual:** identity after `CommutativeCancellation` + `InverseCancellation`.
-Local commutation cutoffs allow the whole accumulated rotation to disappear.
+**Expected:** RZ(pi), equivalent to Z. **Actual:** identity after
+`CommutativeCancellation(basis_gates=["rz"])`. The two large angles are
+exactly representable as binary64 numbers, and import preserves the middle
+rotation. Floating-point angle addition rounds `1e17 + pi` back to `1e17`,
+then adding `-1e17` gives zero.
 
-Measuring Y changes P(+1) from **96.601954% to 50%**.
+Measuring X changes P(+1) from **0% to 100%**. Standard `transpile` also
+reproduces the error at optimization levels 2 and 3 with
+`basis_gates=["rz", "sx", "x", "cx"]`; level 1 preserves the Z rotation.
 
 ### PennyLane: 99.499625 pp
 
@@ -144,16 +146,15 @@ uv run bugs.py
 uv run bugs.py --tools pennylane cirq quizx tket
 ```
 
-Qiskit's 600,000 gates and BQSKit's 10,000 separate block optimizations dominate
-runtime. The large circuits demonstrate accumulated error.
+BQSKit's 10,000 separate block optimizations dominate runtime. Its large circuit
+demonstrates accumulated error; the other examples use at most five gates.
 
 ## How the expected probabilities are checked
 
 The expected rotations are derived analytically, using exact rational arithmetic
-for numeric angles and mathematical π. QASM literals for `3e-6` and `1e-4` spell
-out their exact stored binary64 values. The reference also accounts for the X
-gates in Qiskit's echo; it does not use a framework's floating-point matrix as
-the ideal answer.
+for numeric angles and mathematical π. The QASM literal for `1e-4` spells out
+its exact stored binary64 value. The reference does not use a framework's
+floating-point matrix as the ideal answer.
 
 Ideal probabilities are evaluated at 100 decimal digits. Output probabilities
 are calculated from each tool's native output matrix. The script prints only
@@ -161,8 +162,9 @@ the input, expected rotation, output, measurement probabilities, and their
 absolute difference in percentage points. The displayed percentages are rounded.
 
 The tests check the ideal probabilities at 100 and 160 digits for agreement
-within absolute 10⁻⁷⁰ and compare the Qiskit echo reference with an independent
-matrix calculation.
+within absolute 10⁻⁷⁰ and compare the QuiZX reference with an independent matrix
+calculation. When Qiskit and QuiZX are installed, they also check import and
+optimization separately.
 
 Run the small reference tests with:
 

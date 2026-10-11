@@ -83,20 +83,28 @@ class MeasurementTests(unittest.TestCase):
         self.assertEqual(len(after.gates), 0)
         self.assertEqual(bugs.output_probability(after.to_matrix(), axis), 1)
 
-    def test_echo_reference_against_independent_matrix_product(self):
-        ctx = bugs.mp.mp.clone()
-        ctx.dps = 100
-        d = Fraction(3e-6)
-        a = ctx.mpf(d.numerator) / d.denominator
-        positive = ctx.diag([1, ctx.exp(1j * a)])
-        negative = ctx.diag([1, ctx.exp(-1j * a)])
-        x = ctx.matrix([[0, 1], [1, 0]])
-        matrix = (x * negative * negative * x * positive * positive) ** 100_000
-        self.assertAlmostEqual(
-            bugs.output_probability(matrix, "Y"),
-            float(bugs.ideal_probability(d * 400_000, "Y")),
-            places=14,
+    @unittest.skipUnless(importlib.util.find_spec("qiskit"), "requires qiskit")
+    def test_qiskit_rz_import_preserved_but_optimization_loses_pi(self):
+        from qiskit import transpile
+        from qiskit.quantum_info import Operator
+
+        source, angle, axis, _, _ = bugs.examples()["qiskit"]
+        circuit = bugs.qiskit_load(source)
+        self.assertEqual([i.operation.name for i in circuit.data], ["rz"] * 3)
+        self.assertEqual(
+            [i.operation.params[0] for i in circuit.data], [1e17, math.pi, -1e17]
         )
+        self.assertEqual(Fraction(circuit.data[0].operation.params[0]), 10**17)
+        self.assertLess(bugs.output_probability(Operator(circuit).data, axis), 1e-25)
+        self.assertEqual(bugs.ideal_probability(angle, axis), 0)
+        matrix, gates = bugs.optimize("qiskit", source)
+        self.assertEqual(gates, 0)
+        self.assertEqual(bugs.output_probability(matrix, axis), 1)
+        for level in (2, 3):
+            output = transpile(
+                circuit, basis_gates=["rz", "sx", "x", "cx"], optimization_level=level
+            )
+            self.assertEqual(bugs.output_probability(Operator(output).data, axis), 1)
 
     def test_exact_literals_and_six_qasm_inputs(self):
         for value in (3e-6, 1e-4):
