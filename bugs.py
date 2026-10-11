@@ -20,10 +20,10 @@ import mpmath as mp
 
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
 mp.mp.dps = 100
-# MQT QMAP 3.10.0 requires MQT Core 3.10, so MQT Core 4 runs in its own environment.
-# Pin every package in that environment, including indirect dependencies.
 # quilc 1.26.0, the newest official Docker image, pinned by digest.
 QUILC_IMAGE = "rigetti/quilc@sha256:0e65aefeedd467f6dfb4727fc12865f4ab9316d453602a9f7f097ba3b749a424"
+# MQT QMAP 3.10.0 requires MQT Core 3.10, so MQT Core 4 runs in its own environment.
+# Pin every package in that environment, including indirect dependencies.
 MQT_CORE4 = [
     "mqt.core==4.0.0", "qiskit==2.5.1", "mpmath==1.3.0", "numpy==2.5.4",
     "scipy==1.18.1", "rustworkx==0.18.1", "nanobind-backend==1.0.0",
