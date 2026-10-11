@@ -35,7 +35,7 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 ## Input and output for each tool
 
 The input gates below execute from left to right.
-`RZ(a)` is a Z rotation by angle `a`, in radians.
+`rz(a)` is a Z rotation by angle `a`, in radians.
 
 In all six examples, the circuit produced by the optimizer acts as **identity**.
 None of the input circuits is equivalent to identity.
@@ -45,10 +45,10 @@ Gate comparisons below ignore global phase, which does not affect measurement pr
 ### Qiskit: 100 pp
 
 ```text
-RZ(1e17); RZ(pi); RZ(-1e17)
+rz(1e17); rz(pi); rz(-1e17)
 ```
 
-**Expected:** RZ(pi), equivalent to Z.
+**Expected:** rz(pi), equivalent to Z.
 
 **Output:** identity after `CommutativeCancellation(basis_gates=["rz"])`.
 
@@ -67,10 +67,10 @@ Level 1 preserves the Z rotation.
 ### PennyLane: 100 pp
 
 ```text
-RZ(1e17); RZ(pi); RZ(-1e17)
+rz(1e17); rz(pi); rz(-1e17)
 ```
 
-**Expected:** RZ(pi), equivalent to Z.
+**Expected:** rz(pi), equivalent to Z.
 
 **Output:** identity after `merge_rotations(atol=0)`.
 
@@ -86,10 +86,10 @@ PennyLane then runs the optimization.
 ### Cirq: 100 pp
 
 ```text
-RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)
+rz(1e16*pi); rz(pi); rz(-1e16*pi)
 ```
 
-**Expected:** RZ(pi), equivalent to Z.
+**Expected:** rz(pi), equivalent to Z.
 
 **Output:** identity after `eject_z(atol=0)`.
 
@@ -101,13 +101,13 @@ It loses the middle rotation. QASM import preserves that rotation.
 ### BQSKit: 100 pp
 
 ```text
-[RZ(pi/12000)] × 12,000
+[rz(pi/12000)] × 12,000
 ```
 
 Each rotation is in its own one-gate block.
 The rotations add up to pi.
 
-**Expected:** RZ(pi), equivalent to Z.
+**Expected:** rz(pi), equivalent to Z.
 
 **Output:** identity after `ForEachBlockPass(ScanningGateRemovalPass())`, then `UnfoldPass`.
 
@@ -122,10 +122,10 @@ This example uses an optimization workflow that permits approximation.
 ### QuiZX: approximately 100 pp
 
 ```text
-RZ(2147483647*pi/4294967295); RZ(2147483648*pi/4294967297)
+rz(2147483647*pi/4294967295); rz(2147483648*pi/4294967297)
 ```
 
-**Expected:** RZ(pi × (1 − 2³²/(2⁶⁴ − 1))), almost exactly Z.
+**Expected:** rz(pi × (1 − 2³²/(2⁶⁴ − 1))), almost exactly Z.
 Both input angles are close to pi/2.
 
 **Output:** identity after `full_simp`.
@@ -155,10 +155,10 @@ Only QuiZX produces identity for this input in these checks.
 ### tket: 100 pp
 
 ```text
-RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)
+rz(1e16*pi); rz(pi); rz(-1e16*pi)
 ```
 
-**Expected:** RZ(pi), equivalent to Z.
+**Expected:** rz(pi), equivalent to Z.
 
 **Output:** identity after `RemoveRedundancies`.
 

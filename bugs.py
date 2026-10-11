@@ -26,20 +26,20 @@ def examples():
             HEADER
             + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
             "pi",
-            "RZ(1e17); RZ(pi); RZ(-1e17)",
+            "rz(1e17); rz(pi); rz(-1e17)",
             "Z",
         ),
         "pennylane": (
             HEADER
             + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
             "pi",
-            "RZ(1e17); RZ(pi); RZ(-1e17)",
+            "rz(1e17); rz(pi); rz(-1e17)",
             "Z",
         ),
         "cirq": (
             HEADER + "qreg q[1];\n" + rotations,
             "pi",
-            "RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)",
+            "rz(1e16*pi); rz(pi); rz(-1e16*pi)",
             "Z",
         ),
         "bqskit": (
@@ -47,20 +47,20 @@ def examples():
             + "gate audit_block(a) q { rz(a) q; }\nqreg q[1];\n"
             + "audit_block(pi/12000) q[0];\n" * 12_000,
             "pi",
-            "RZ(pi/12000) x 12,000; one gate per block",
+            "rz(pi/12000) x 12,000; one gate per block",
             "Z",
         ),
         "quizx": (
             HEADER
             + "qreg q[1];\nrz(2147483647*pi/4294967295) q[0];\nrz(2147483648*pi/4294967297) q[0];\n",
             lambda: mp.pi * (1 - mp.mpf(2**32) / (2**64 - 1)),
-            "RZ(2147483647*pi/4294967295); RZ(2147483648*pi/4294967297)",
-            "RZ(~pi)",
+            "rz(2147483647*pi/4294967295); rz(2147483648*pi/4294967297)",
+            "rz(~pi)",
         ),
         "tket": (
             HEADER + "qreg q[1];\n" + rotations,
             "pi",
-            "RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)",
+            "rz(1e16*pi); rz(pi); rz(-1e16*pi)",
             "Z",
         ),
     }
@@ -100,7 +100,7 @@ def optimize(tool, source):
     if tool == "pennylane":
         import pennylane as qml
 
-        # Explicit QASM-parser adapter: this fixture contains only RZ gates.
+        # Explicit QASM-parser adapter: this fixture contains only rz gates.
         parsed = qiskit_load(source)
         assert all(i.operation.name == "rz" for i in parsed.data)
         tape = qml.tape.QuantumScript(
