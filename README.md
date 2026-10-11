@@ -10,7 +10,7 @@ uv run bugs.py
 
 ## How bad are the outputs?
 
-For every example, prepare **|+X> = (|0> + |1>)/√2**, apply the circuit, then
+For every example, prepare **|+> = (|0> + |1>)/√2**, apply the circuit, then
 measure the indicated Pauli observable. The table compares the probability of
 outcome **+1** for the ideal input circuit and the actual output circuit.
 

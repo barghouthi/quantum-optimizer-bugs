@@ -7,7 +7,7 @@
 #   "pyzx==0.9.0", "pytket==2.18.5", "mpmath==1.3.0", "ply==3.11",
 # ]
 # ///
-"""Six QASM reproducers. Compare P(+1) after preparing |+X> and measuring X or Y."""
+"""Six QASM reproducers. Compare P(+1) after preparing |+> and measuring X or Y."""
 
 import argparse
 import math
@@ -92,7 +92,7 @@ def ideal_probability(angle, axis):
 
 
 def output_probability(unitary, axis):
-    # <+X|U|+X> or <+Y|U|+X>; square the amplitude for outcome +1.
+    # <+|U|+> or <+Y|U|+>; square the amplitude for outcome +1.
     a = (unitary[0, 0] + unitary[0, 1]) / 2
     b = (unitary[1, 0] + unitary[1, 1]) / 2
     probability = float(abs(a + (b if axis == "X" else -1j * b)) ** 2)
@@ -179,7 +179,7 @@ def main(argv=None):
     parser.add_argument("--tools", nargs="+", choices=TOOLS, default=TOOLS)
     args = parser.parse_args(argv)
     cases = examples()
-    print("Prepare |+X>; measure X or Y. Compare probability of outcome +1.")
+    print("Prepare |+>; measure X or Y. Compare probability of outcome +1.")
     for tool in dict.fromkeys(args.tools):
         source, angle, axis, description, expected = cases[tool]
         print(f"\n{tool}\n  Input:    {description}", flush=True)
