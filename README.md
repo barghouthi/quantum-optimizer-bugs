@@ -16,6 +16,12 @@ Run all seven examples with the locked dependencies:
 uv run --locked bugs.py
 ```
 
+Run the additional MQT Core 4 example separately:
+
+```sh
+uv run --locked mqt_core4.py
+```
+
 ## How bad are the outputs?
 
 For each example, prepare every qubit in `|+>`.
@@ -29,9 +35,9 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 | Qiskit 2.5.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | PennyLane 0.45.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | Cirq 1.7.0 | 0% | 100% | **100 pp** | Floating-point addition |
-| BQSKit 1.2.1 | 0% | 99.998558% | **99.998558 pp** | Angle applied to the wrong qubit |
 | QuiZX 0.3.0 | ≈0% | 100% | **≈100 pp** | Integer overflow |
 | tket 2.18.5 | 0% | 100% | **100 pp** | Floating-point addition |
+| BQSKit 1.2.1 | 0% | 99.998558% | **99.998558 pp** | Angle applied to the wrong qubit |
 | MQT QMAP 3.10.0 / Core 3.10.1 | 0% | 100% | **100 pp** | Angle silently dropped |
 
 ## Input and output for each tool
@@ -96,31 +102,6 @@ It loses the middle rotation. QASM import preserves that rotation.
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
-### BQSKit: 99.998558 pp
-
-```qasm
-gate g(a) x,y { rz(a) x; id y; }
-qreg q[2];
-g(0) q[1],q[0];
-g(pi) q[0],q[1];
-```
-
-The first block is identity. The second applies Z to `q[0]`.
-
-**Expected:** Z on `q[0]` and identity on `q[1]`.
-
-**Output:** an incorrect two-qubit circuit after `BlockConversionPass("variable")`
-and `ExtractDiagonalPass`.
-
-**Cause:** the extraction pass moves a diagonal phase angle from the second block into
-the first without remapping their different qubit orderings, so the angle lands on the wrong qubit.
-The script uses a local cost threshold of `1e-12`, seed `75`, and one synthesis start.
-The large error appears when the phase is merged into the other block.
-Using the same qubit ordering in both blocks preserves the result.
-The incorrect merge is in [ExtractDiagonalPass](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/extract_diagonal.py).
-
-**Measurement:** the +1 probability changes from **0% to 99.998558%**.
-
 ### QuiZX: approximately 100 pp
 
 ```text
@@ -161,6 +142,31 @@ QASM import preserves that rotation.
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
+### BQSKit: 99.998558 pp
+
+```qasm
+gate g(a) x,y { rz(a) x; id y; }
+qreg q[2];
+g(0) q[1],q[0];
+g(pi) q[0],q[1];
+```
+
+The first block is identity. The second applies Z to `q[0]`.
+
+**Expected:** Z on `q[0]` and identity on `q[1]`.
+
+**Output:** an incorrect two-qubit circuit after `BlockConversionPass("variable")`
+and `ExtractDiagonalPass`.
+
+**Cause:** the extraction pass moves a diagonal phase angle from the second block into
+the first without remapping their different qubit orderings, so the angle lands on the wrong qubit.
+The script uses a local cost threshold of `1e-12`, seed `75`, and one synthesis start.
+The large error appears when the phase is merged into the other block.
+Using the same qubit ordering in both blocks preserves the result.
+The incorrect merge is in [ExtractDiagonalPass](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/extract_diagonal.py).
+
+**Measurement:** the +1 probability changes from **0% to 99.998558%**.
+
 ### MQT QMAP: 100 pp
 
 ```text
@@ -185,6 +191,30 @@ See the related [upstream limitation](https://github.com/munich-quantum-toolkit/
 and [mapper source](https://github.com/munich-quantum-toolkit/qmap/blob/v3.10.0/src/sc/Mapper.cpp).
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
+
+#### Additional example: MQT Core 4.0.0, approximately 100 pp
+
+```qasm
+ctrl @ pow(80599999999716496) @ gphase(1) q[0];
+```
+
+This OpenQASM 3 gate is `p(K)` on `q[0]`, with `K = 80599999999716496`.
+It applies the phase `e^(iK)` when `q[0]` is 1.
+
+**Expected:** `p(K)`. `K` mod 2π is approximately −9×10⁻⁵, so the gate is almost identity.
+
+**Output:** `p(-3.1413486180563552)`, almost Z, after `compile_program` with `OutputFormat.QCO_OPTIMIZED`.
+
+**Cause:** the global-phase normalization pass multiplies the phase by `K`.
+It then reduces the result modulo the 64-bit floating-point value of 2π.
+That value is approximately 2.4×10⁻¹⁶ less than the real 2π.
+Over approximately 1.3×10¹⁶ periods, this difference adds up to approximately π.
+QASM import preserves `K` exactly.
+See [`normalizeAngle`](https://github.com/munich-quantum-toolkit/core/blob/v4.0.0/mlir/lib/Dialect/MQT/Utils/Angles.cpp)
+and [the normalization pass](https://github.com/munich-quantum-toolkit/core/blob/v4.0.0/mlir/lib/Dialect/MQT/Transforms/NormalizeGlobalPhases.cpp).
+
+**Measurement:** the +1 probability changes from **almost 100% to almost 0%**.
+MQT QMAP 3.10.0 requires MQT Core 3.10, so `mqt_core4.py` runs this example separately.
 
 ## How the expected probabilities are checked
 

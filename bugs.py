@@ -42,13 +42,6 @@ def examples():
             "rz(1e16*pi); rz(pi); rz(-1e16*pi)",
             "Z",
         ),
-        "bqskit": (
-            HEADER
-            + "gate g(a) x,y { rz(a) x; id y; }\nqreg q[2];\n"
-            + "g(0) q[1],q[0];\ng(pi) q[0],q[1];\n",
-            "g(0) q[1],q[0]; g(pi) q[0],q[1]; g(a) = rz(a) on its first qubit",
-            "Z on q[0]",
-        ),
         "quizx": (
             HEADER
             + "qreg q[1];\nrz(2147483647*pi/4294967295) q[0];\nrz(2147483648*pi/4294967297) q[0];\n",
@@ -59,6 +52,13 @@ def examples():
             HEADER + "qreg q[1];\n" + rotations,
             "rz(1e16*pi); rz(pi); rz(-1e16*pi)",
             "Z",
+        ),
+        "bqskit": (
+            HEADER
+            + "gate g(a) x,y { rz(a) x; id y; }\nqreg q[2];\n"
+            + "g(0) q[1],q[0];\ng(pi) q[0],q[1];\n",
+            "g(0) q[1],q[0]; g(pi) q[0],q[1]; g(a) = rz(a) on its first qubit",
+            "Z on q[0]",
         ),
         "mqt": (
             HEADER + "qreg q[2];\ncrz(2*pi) q[0],q[1];\n",
