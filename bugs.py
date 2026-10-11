@@ -5,7 +5,8 @@
 #   "qiskit==2.5.1", "pennylane==0.45.1", "cirq-core==1.7.0",
 #   "bqskit==1.2.1", "bqskitrs==0.4.1", "quizx==0.3.0",
 #   "pyzx==0.9.0", "pytket==2.18.5", "mpmath==1.3.0", "ply==3.11",
-#   "sympy==1.14.0", "mqt.qmap==3.10.0", "mqt.core==3.10.1",
+#   "sympy==1.13.0", "mqt.qmap==3.10.0", "mqt.core==3.10.1",
+#   "qrisp==0.9.9", "cuda-quantum-cu13==0.16.0",
 # ]
 # ///
 """QASM reproducers. Prepare every qubit in |+>; measure X on q[0]."""
@@ -21,6 +22,8 @@ HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
 mp.mp.dps = 100
 # MQT QMAP 3.10.0 requires MQT Core 3.10, so MQT Core 4 runs in its own environment.
 # Pin every package in that environment, including indirect dependencies.
+# quilc 1.26.0, the newest official Docker image, pinned by digest.
+QUILC_IMAGE = "rigetti/quilc@sha256:0e65aefeedd467f6dfb4727fc12865f4ab9316d453602a9f7f097ba3b749a424"
 MQT_CORE4 = [
     "mqt.core==4.0.0", "qiskit==2.5.1", "mpmath==1.3.0", "numpy==2.5.4",
     "scipy==1.18.1", "rustworkx==0.18.1", "nanobind-backend==1.0.0",
@@ -66,6 +69,24 @@ def examples():
             + "g(0) q[1],q[0];\ng(pi) q[0],q[1];\n",
             "g(0) q[1],q[0]; g(pi) q[0],q[1]; g(a) = rz(a) on its first qubit",
             "Z on q[0]",
+        ),
+        "qrisp": (
+            HEADER
+            + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
+            "rz(1e17); rz(pi); rz(-1e17)",
+            "Z",
+        ),
+        "cudaq": (
+            HEADER
+            + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
+            "rz(1e17); rz(pi); rz(-1e17)",
+            "Z",
+        ),
+        "quilc": (
+            HEADER
+            + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
+            "rz(1e17); rz(pi); rz(-1e17)",
+            "Z",
         ),
         "mqt": (
             HEADER + "qreg q[2];\ncrz(2*pi) q[0],q[1];\n",
@@ -136,13 +157,17 @@ def ideal_probability(source):
     return mp.mpf(str(probability.evalf(100)))
 
 
-def output_probability(unitary):
+def output_probability(output):
     # Prepare every qubit in |+>; measure X on the most significant qubit.
-    dimension = len(unitary)
-    state = [
-        sum(unitary[i, j] for j in range(dimension)) / math.sqrt(dimension)
-        for i in range(dimension)
-    ]
+    # The output is a unitary, or the output state for the |+> input.
+    dimension = len(output)
+    if getattr(output, "ndim", 2) == 1:
+        state = output
+    else:
+        state = [
+            sum(output[i, j] for j in range(dimension)) / math.sqrt(dimension)
+            for i in range(dimension)
+        ]
     half = dimension // 2
     probability = float(
         sum(abs(state[i] + state[i + half]) ** 2 for i in range(half)) / 2
@@ -152,6 +177,33 @@ def output_probability(unitary):
     return probability
 
 
+class Skipped(Exception):
+    """A tool that cannot run here, such as quilc without Docker."""
+
+
+def quil_unitary(program):
+    """Unitary of quilc's native one-qubit output. Other gates raise an error."""
+    import numpy as np
+    import sympy as sp
+
+    unitary = np.eye(2, dtype=complex)
+    for line in program.splitlines():
+        line = line.split("#")[0].strip()
+        if not line or line == "HALT":
+            continue
+        gate = re.fullmatch(r"(RZ|RX)\((.*)\) 0", line)
+        if not gate:
+            raise ValueError(f"Unsupported quilc output: {line}")
+        angle = float(sp.sympify(gate[2], locals={"pi": sp.pi}))
+        c, s = math.cos(angle / 2), math.sin(angle / 2)
+        if gate[1] == "RZ":
+            matrix = np.diag([complex(c, -s), complex(c, s)])
+        else:
+            matrix = np.array([[c, -1j * s], [-1j * s, c]])
+        unitary = matrix @ unitary
+    return unitary
+
+
 def qiskit_load(source):
     from qiskit import qasm2
 
@@ -159,7 +211,10 @@ def qiskit_load(source):
 
 
 def optimize(tool, source):
-    """Return the output's native matrix and gate count. All inputs are parsed QASM."""
+    """Return the output's native matrix and gate count. All inputs are parsed QASM.
+
+    CUDA-Q returns its output state and no gate count.
+    """
     if tool == "qiskit":
         from qiskit.quantum_info import Operator
         from qiskit.transpiler import PassManager
@@ -228,6 +283,62 @@ def optimize(tool, source):
         circuit = circuit_from_qasm_str(source)
         RemoveRedundancies().apply(circuit)
         return circuit.get_unitary(), circuit.n_gates
+    if tool == "qrisp":
+        import numpy as np
+        from qrisp import QuantumCircuit, QuantumVariable
+
+        circuit = QuantumCircuit.from_qasm_str(source)
+        # Check that import preserves all three angles before compiling.
+        assert [i.op.params[0] for i in circuit.data] == [1e17, math.pi, -1e17]
+        variable = QuantumVariable(1)
+        variable.qs.append(circuit.to_gate(), [variable[0]])
+        output = variable.qs.compile()
+        gates = [i for i in output.data if i.op.name != "qb_alloc"]
+        # The compiled unitary is complex64; widen it before computing probabilities.
+        return np.asarray(output.get_unitary(), dtype=np.complex128), len(gates)
+    if tool == "cudaq":
+        import cudaq
+        import numpy as np
+
+        # Explicit QASM-parser adapter: this fixture contains only rz gates.
+        parsed = qiskit_load(source)
+        assert all(i.operation.name == "rz" for i in parsed.data)
+        kernel = cudaq.make_kernel()
+        qubit = kernel.qalloc(1)
+        kernel.h(qubit[0])  # prepare |+>
+        for i in parsed.data:
+            kernel.rz(i.operation.params[0], qubit[0])
+        # Check that the kernel keeps all three exact angles before optimization.
+        assert re.findall(r"arith.constant (\S+) : f64", str(kernel)) == [
+            "-1.000000e+17", "3.1415926535897931", "1.000000e+17"
+        ]
+        # get_state runs the default pipeline. If it removes every gate, the
+        # unitary drops the qubit, so return the output state for the |+> input.
+        return np.array(cudaq.get_state(kernel)), None
+    if tool == "quilc":
+        import shutil
+        import subprocess
+
+        if not shutil.which("docker") or subprocess.run(
+            ["docker", "info"], capture_output=True
+        ).returncode:
+            raise Skipped("Docker is not available")
+        # Explicit QASM-parser adapter: this fixture contains only rz gates.
+        parsed = qiskit_load(source)
+        assert all(i.operation.name == "rz" for i in parsed.data)
+        # repr gives each exact 64-bit floating-point angle; quilc parses it back exactly.
+        quil = "".join(f"RZ({i.operation.params[0]!r}) 0\n" for i in parsed.data)
+        result = subprocess.run(
+            ["docker", "run", "--rm", "-i", QUILC_IMAGE],
+            input=quil, capture_output=True, text=True,
+        )
+        if result.returncode:
+            raise RuntimeError(result.stderr)
+        gates = [
+            line for line in result.stdout.splitlines()
+            if line.split("#")[0].strip() not in ("", "HALT")
+        ]
+        return quil_unitary(result.stdout), len(gates)
     if tool == "mqt":
         from mqt.core import load
         from mqt.core.dd import build_unitary
@@ -282,10 +393,15 @@ def main():
     reproduced_all = True
     for tool, (source, description, expected) in examples().items():
         print(f"\n{tool}\n  Input:    {description}", flush=True)
-        unitary, count = optimize(tool, source)
+        try:
+            unitary, count = optimize(tool, source)
+        except Skipped as reason:
+            print(f"  Skipped:  {reason}")
+            continue
         ideal = ideal_probability(source)
         actual = output_probability(unitary)
-        print(f"  Expected: {expected}; output: {count} gates")
+        gates = "state only" if count is None else f"{count} gates"
+        print(f"  Expected: {expected}; output: {gates}")
         print(
             f"  Measure X: expected {float(100 * ideal):.6f}% -> output {100 * actual:.6f}%"
         )

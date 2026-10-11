@@ -7,7 +7,8 @@
 > **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in unsound optimization of quantum circuits.**
 
 Across several quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
-This repository provides seven OpenQASM examples, and one additional MQT Core 4 example, that reproduce these errors.
+This repository provides ten OpenQASM examples that reproduce these errors.
+It also provides one additional MQT Core 4 example.
 Each example shows an almost completely flipped measurement outcome.
 
 Run all examples with the pinned dependencies:
@@ -15,6 +16,8 @@ Run all examples with the pinned dependencies:
 ```sh
 uv run bugs.py
 ```
+
+The quilc example needs Docker. Without Docker, the script skips it.
 
 ## How bad are the outputs?
 
@@ -32,6 +35,9 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 | QuiZX 0.3.0 | ≈0% | 100% | **≈100 pp** | Integer overflow |
 | tket 2.18.5 | 0% | 100% | **100 pp** | Floating-point addition |
 | BQSKit 1.2.1 | 0% | 99.998558% | **99.998558 pp** | Angle applied to the wrong qubit |
+| Qrisp 0.9.9 | 0% | 100% | **100 pp** | Floating-point addition |
+| CUDA-Q 0.16.0 | 0% | 100% | **100 pp** | Floating-point addition |
+| quilc 1.26.0 (pyQuil's compiler) | 0% | 100% | **100 pp** | Floating-point addition |
 | MQT QMAP 3.10.0 / Core 3.10.1 | 0% | 100% | **100 pp** | Angle silently dropped |
 
 ## Input and output for each tool
@@ -39,7 +45,7 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 The input gates below execute from left to right.
 `rz(a)` is a Z rotation by angle `a`, in radians.
 
-The optimized circuits act as **identity** in five examples.
+The optimized circuits act as **identity** in eight examples.
 BQSKit and MQT QMAP produce different incorrect circuits.
 None of the input circuits is equivalent to identity.
 Gate comparisons below ignore global phase, which does not affect measurement probabilities.
@@ -160,6 +166,80 @@ Using the same qubit ordering in both blocks preserves the result.
 The incorrect merge is in [ExtractDiagonalPass](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/extract_diagonal.py).
 
 **Measurement:** the +1 probability changes from **0% to 99.998558%**.
+
+### Qrisp: 100 pp
+
+```text
+rz(1e17); rz(pi); rz(-1e17)
+```
+
+**Expected:** rz(pi), equivalent to Z.
+
+**Output:** identity after the default compiler, `QuantumSession.compile()`.
+
+**Cause:** floating-point addition loses the middle rotation.
+QASM import preserves all three angles.
+The gate-fusion pass rounds `1e17 + pi` back to `1e17`.
+Adding `-1e17` then gives zero. The pass then removes the gate.
+See [`fuse_adjacents`](https://github.com/eclipse-qrisp/Qrisp/blob/c30b323ad93507bd58b25e75a705e946a29d790b/src/qrisp/circuit/pass_management/passes/fuse_adjacents.py#L223).
+Qrisp has no 0.9.9 tag. This link uses the commit that sets the version to 0.9.9.
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+### CUDA-Q: 100 pp
+
+```text
+rz(1e17); rz(pi); rz(-1e17)
+```
+
+**Expected:** rz(pi), equivalent to Z.
+
+**Output:** identity after the default compilation pipeline. `cudaq.get_state` runs this pipeline.
+
+**Cause:** floating-point addition loses the middle rotation.
+The kernel keeps all three exact angles before optimization.
+The `quake-simplify` pass merges the rotations with a 64-bit floating-point addition.
+`1e17 + pi` rounds back to `1e17`. Adding `-1e17` then gives zero.
+The pass then removes the zero rotation.
+See [the rotation merge](https://github.com/NVIDIA/cuda-quantum/blob/0.16.0/cudaq/lib/Optimizer/Transforms/QuakeSimplify.cpp#L363-L379)
+and [the default pipeline](https://github.com/NVIDIA/cuda-quantum/blob/0.16.0/cudaq/lib/Optimizer/CodeGen/Pipelines.cpp#L196).
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+CUDA-Q has no QASM importer.
+Qiskit parses the QASM input. The script builds the CUDA-Q kernel from the parsed gates.
+The kernel first applies H to prepare `|+>`.
+If the pipeline removes every gate, the CUDA-Q unitary has no qubit.
+Thus the script compares the output state.
+
+### quilc: 100 pp
+
+```text
+rz(1e17); rz(pi); rz(-1e17)
+```
+
+**Expected:** rz(pi), equivalent to Z.
+
+**Output:** identity (`HALT` only) after quilc. pyQuil uses this compiler.
+
+**Cause:** floating-point addition loses the middle rotation.
+quilc's rewriting rule merges adjacent RZ gates and adds their angles in 64-bit floating point.
+`1e17 + pi` rounds back to `1e17`. Adding `-1e17` then gives zero.
+Another rule then removes the zero rotation.
+See [the rewriting rules](https://github.com/quil-lang/quilc/blob/7aef642/src/compressor/rewriting-rules.lisp#L85-L93).
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+The script runs quilc 1.26.0 from the official Docker image. It pins the image by digest.
+Qiskit parses the QASM input. The script sends the parsed gates to quilc as Quil.
+We also built quilc 1.27.0, the latest release, from source. It gives the same result.
+
+quilc also removes a single large rotation. `RZ(1.3e18)` compiles to identity.
+But 1.3×10¹⁸ mod 2π is approximately 3.139, so the gate is almost Z.
+quilc divides the angle by 2π in floating point and checks whether the result is a whole number.
+Every floating-point value above 2⁵² is a whole number.
+Thus every angle above approximately 2.8×10¹⁶ passes this check.
+See [`full-rotation-p`](https://github.com/quil-lang/quilc/blob/7aef642/src/compressor/rewriting-rules.lisp#L54-L60).
 
 ### MQT QMAP: 100 pp
 
