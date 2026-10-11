@@ -1,6 +1,6 @@
 # quantum-optimizer-bugs
 
-Six OpenQASM circuits whose import or optimization erases a substantial rotation
+Six OpenQASM circuits whose optimization erases a substantial rotation
 and produces the identity circuit. The resulting measurement probabilities change
 by **42 to 100 percentage points**. One standalone script reproduces all six:
 
@@ -24,7 +24,7 @@ from X and Y measurements, rather than a search over all states and measurements
 | PennyLane 0.45.1 | X | 0.500375% | 100% | **99.499625 pp** | Optimization |
 | Cirq 1.7.0 | X | 0% | 100% | **100 pp** | Optimization |
 | BQSKit 1.2.1 | Y | 92.073549% | 50% | **42.073549 pp** | Local approximation |
-| QuiZX 0.3.0 | X | 0.001805% | 100% | **99.998195 pp** | QASM import |
+| QuiZX 0.3.0 | X | ≈0% | 100% | **≈100 pp** | Optimization |
 | tket 2.18.5 | X | 0% | 100% | **100 pp** | Optimization |
 
 ## Input and output for each tool
@@ -90,18 +90,23 @@ Measuring Y changes P(+1) from **92.073549% to 50%**.
 This is an explicitly configured approximation workflow: accepted local errors
 accumulate into a large circuit error.
 
-### QuiZX: 99.998195 pp
+### QuiZX: approximately 100 pp
 
 ```text
-RZ(10000000000000114)
+RZ(2147483647*pi/4294967295); RZ(2147483648*pi/4294967297)
 ```
 
-**Expected:** RZ(≈−3.13309558725), a rotation close to Z after reducing its angle
-modulo 2π. **Actual:** identity already after `quizx.qasm` import and circuit
-extraction. Applying `full_simp` adds zero further error.
+**Expected:** RZ(π × (1 − 2³²/(2⁶⁴ − 1))), a rotation almost exactly equal to Z.
+Both input angles are close to π/2. **Actual:** identity after `full_simp`.
 
-Measuring X changes P(+1) from **0.001805% to 100%**. This is an **import issue**;
-the optimization preserves the circuit it receives.
+QASM import preserves both rational phases exactly; the script checks them
+before simplifying. Phase fusion adds them using 64-bit rational arithmetic.
+Their coprime denominators have least common multiple **2⁶⁴ − 1**, which exceeds
+the signed 64-bit range. Overflow causes the sum to become zero and the rotation
+to disappear. This is an **integer overflow during optimization**.
+
+Measuring X changes P(+1) from **≈1.33758 × 10⁻¹⁷% to 100%**: approximately
+**100 pp**.
 
 ### tket: 100 pp
 

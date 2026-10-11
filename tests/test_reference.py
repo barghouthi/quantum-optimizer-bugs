@@ -1,3 +1,4 @@
+import importlib.util
 import io
 import math
 import unittest
@@ -38,6 +39,49 @@ class MeasurementTests(unittest.TestCase):
             with bugs.mp.workdps(160):
                 after = bugs.ideal_probability(angle, axis)
                 self.assertLess(abs(after - before), bugs.mp.mpf("1e-70"))
+
+    def test_quizx_reference_against_exact_sum_and_matrix_product(self):
+        phases = (Fraction(2147483647, 4294967295), Fraction(2147483648, 4294967297))
+        total = sum(phases)
+        self.assertEqual(total, 1 - Fraction(2**32, 2**64 - 1))
+        _, angle, axis, _, _ = bugs.examples()["quizx"]
+        ctx = bugs.mp.mp.clone()
+        ctx.dps = 160
+        matrix = ctx.eye(2)
+        for phase in phases:
+            theta = ctx.pi * phase.numerator / phase.denominator
+            matrix = (
+                ctx.diag([ctx.exp(-1j * theta / 2), ctx.exp(1j * theta / 2)]) * matrix
+            )
+        expected = abs(sum(matrix[i, j] for i in range(2) for j in range(2)) / 2) ** 2
+        reference = bugs.ideal_probability(angle, axis)
+        self.assertGreater(reference, 0)
+        self.assertLess(abs(reference / expected - 1), ctx.mpf("1e-70"))
+
+    @unittest.skipUnless(importlib.util.find_spec("quizx"), "requires quizx")
+    def test_quizx_import_is_exact_but_simplification_erases_rotation(self):
+        import quizx
+
+        source, angle, axis, _, _ = bugs.examples()["quizx"]
+        graph = quizx.qasm(source)
+        self.assertEqual(
+            [graph.phase(v) for v in graph.vertices() if graph.type(v) == 1],
+            [Fraction(2147483647, 4294967295), Fraction(2147483648, 4294967297)],
+        )
+        before = quizx.extract_circuit(graph)
+        self.assertLess(
+            abs(
+                bugs.output_probability(before.to_matrix(), axis)
+                - bugs.ideal_probability(angle, axis)
+            ),
+            bugs.mp.mpf("1e-24"),
+        )
+        quizx.full_simp(graph)
+        self.assertEqual(len(list(graph.vertices())), 2)
+        self.assertTrue(all(graph.type(v) == 0 for v in graph.vertices()))
+        after = quizx.extract_circuit(graph)
+        self.assertEqual(len(after.gates), 0)
+        self.assertEqual(bugs.output_probability(after.to_matrix(), axis), 1)
 
     def test_echo_reference_against_independent_matrix_product(self):
         ctx = bugs.mp.mp.clone()

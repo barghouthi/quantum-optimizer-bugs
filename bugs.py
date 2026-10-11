@@ -68,11 +68,12 @@ def examples():
             "RZ(~1)",
         ),
         "quizx": (
-            HEADER + "qreg q[1];\nrz(10000000000000114) q[0];\n",
-            Fraction(10000000000000114),
+            HEADER
+            + "qreg q[1];\nrz(2147483647*pi/4294967295) q[0];\nrz(2147483648*pi/4294967297) q[0];\n",
+            lambda: mp.pi * (1 - mp.mpf(2**32) / (2**64 - 1)),
             "X",
-            "RZ(10000000000000114)",
-            "RZ(~-3.13309558725)",
+            "RZ(2147483647*pi/4294967295); RZ(2147483648*pi/4294967297)",
+            "RZ(~pi)",
         ),
         "tket": (
             HEADER + "qreg q[1];\n" + rotations,
@@ -85,7 +86,13 @@ def examples():
 
 
 def ideal_probability(angle, axis):
-    theta = mp.pi if angle == "pi" else mp.mpf(angle.numerator) / angle.denominator
+    theta = (
+        angle()
+        if callable(angle)
+        else mp.pi
+        if angle == "pi"
+        else mp.mpf(angle.numerator) / angle.denominator
+    )
     return (1 + (mp.cos(theta) if axis == "X" else mp.sin(theta))) / 2
 
 
@@ -163,6 +170,11 @@ def optimize(tool, source):
         import quizx
 
         graph = quizx.qasm(source)
+        # Check that import preserves both phases before testing simplification.
+        assert [graph.phase(v) for v in graph.vertices() if graph.type(v) == 1] == [
+            Fraction(2147483647, 4294967295),
+            Fraction(2147483648, 4294967297),
+        ]
         quizx.full_simp(graph)
         output = quizx.extract_circuit(graph)
         assert output.qubits == 1
