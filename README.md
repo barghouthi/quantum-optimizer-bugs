@@ -188,17 +188,8 @@ and [mapper source](https://github.com/munich-quantum-toolkit/qmap/blob/v3.10.0/
 
 ## How the expected probabilities are checked
 
-The reference reads each QASM input independently of the tool being tested.
-It expands the BQSKit block and computes the diagonal phases with exact rational numbers and mathematical π.
-It supports only the gates in these fixtures and rejects other gates.
-It then calculates the expected X measurement probability at 100 decimal digits.
-It calculates output probabilities from each tool's output matrix.
-It accounts for the tools' different qubit orderings and rounds percentages for display.
-
-The script prints whether each error exceeds 99 pp and exits with a failure if any example does not reproduce.
-`bugs.py.lock` pins both direct and indirect dependencies.
-
-The large-angle examples use finite, legal QASM angles to expose lost rotations.
-An optimizer should preserve their measurement probabilities or reject inputs it cannot handle reliably.
+The script calculates each expected probability from the QASM input with exact arithmetic and 100-digit precision.
+It does not use the tool under test for this calculation, and it rejects unsupported gates.
+It then compares this value with the probability from the tool's output circuit.
 
 Released under the [MIT license](LICENSE).
