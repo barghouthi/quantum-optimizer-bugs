@@ -3,9 +3,11 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/badge/uv-run-DE5FE9?logo=uv&logoColor=2C1A47)](https://docs.astral.sh/uv/)
 
-This script runs six OpenQASM circuits through quantum circuit optimizers.
+This repository reproduces large measurement errors in all six tools tested here.
+These tools include quantum SDKs and circuit optimizers.
 Each optimizer removes a rotation that affects the measurement result.
 
+> [!WARNING]
 > **Optimization changes an almost-certain −1 outcome into a certain +1 outcome.**
 
 All six examples have approximately **100 percentage points** of error.
