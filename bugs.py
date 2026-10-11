@@ -20,7 +20,12 @@ import mpmath as mp
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
 mp.mp.dps = 100
 # MQT QMAP 3.10.0 requires MQT Core 3.10, so MQT Core 4 runs in its own environment.
-MQT_CORE4 = ["mqt.core==4.0.0", "qiskit==2.5.1", "mpmath==1.3.0"]
+# Pin every package in that environment, including indirect dependencies.
+MQT_CORE4 = [
+    "mqt.core==4.0.0", "qiskit==2.5.1", "mpmath==1.3.0", "numpy==2.5.4",
+    "scipy==1.18.1", "rustworkx==0.18.1", "nanobind-backend==1.0.0",
+    "dill==0.4.1", "stevedore==5.9.1", "typing-extensions==4.16.0",
+]
 
 
 def examples():
