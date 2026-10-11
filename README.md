@@ -7,7 +7,7 @@ Across many quantum SDKs and optimization tools, we find bugs that change expect
 OpenQASM examples that reproduce these errors. Each example demonstrates a completely flipped measurement outcome.
 
 > [!WARNING]
-> **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in incorrect representation and compilation of circuits.**
+> **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in unsound optimizatio of quantum circuits.**
 
 Run all six examples:
 
