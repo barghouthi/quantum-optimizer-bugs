@@ -31,11 +31,10 @@ def examples():
         ),
         "pennylane": (
             HEADER
-            + "qreg q[1];\n"
-            + "".join(f"rz({a}) q[0];\n" for a in (10**16, 1, 1, 1, -(10**16))),
-            Fraction(3),
-            "RZ(1e16); RZ(1); RZ(1); RZ(1); RZ(-1e16)",
-            "RZ(3)",
+            + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
+            "pi",
+            "RZ(1e17); RZ(pi); RZ(-1e17)",
+            "Z",
         ),
         "cirq": (
             HEADER + "qreg q[1];\n" + rotations,
@@ -68,13 +67,7 @@ def examples():
 
 
 def ideal_probability(angle):
-    theta = (
-        angle()
-        if callable(angle)
-        else mp.pi
-        if angle == "pi"
-        else mp.mpf(angle.numerator) / angle.denominator
-    )
+    theta = angle() if callable(angle) else mp.pi
     return (1 + mp.cos(theta)) / 2
 
 

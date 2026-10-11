@@ -8,7 +8,7 @@ Each optimizer removes a rotation that affects the measurement result.
 
 > **Optimization changes an almost-certain −1 outcome into a certain +1 outcome.**
 
-The errors range from approximately **99.5 to 100 percentage points**.
+All six examples have approximately **100 percentage points** of error.
 
 Run all six examples:
 
@@ -22,15 +22,12 @@ For each example, prepare `|+>`.
 Apply the circuit. Then measure in the X basis.
 Compare the expected probability of the **+1** outcome with the output probability.
 
-Five examples have approximately **100 pp** of error.
-PennyLane has **99.499625 pp**, because its expected +1 probability is slightly above zero.
-
 The error is the absolute probability difference, in **percentage points (pp)**:
 
 | Tool / tested version | Expected +1 probability | Output +1 probability | Error | Cause |
 |---|---:|---:|---:|---|
 | Qiskit 2.5.1 | 0% | 100% | **100 pp** | Floating-point addition |
-| PennyLane 0.45.1 | 0.500375% | 100% | **99.499625 pp** | Floating-point addition |
+| PennyLane 0.45.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | Cirq 1.7.0 | 0% | 100% | **100 pp** | Floating-point addition |
 | BQSKit 1.2.1 | 0% | 100% | **100 pp** | Repeated small approximations |
 | QuiZX 0.3.0 | ≈0% | 100% | **≈100 pp** | Integer overflow |
@@ -43,7 +40,7 @@ The input gates below execute from left to right.
 
 In all six examples, the circuit produced by the optimizer acts as **identity**.
 None of the input circuits is equivalent to identity.
-For example, PennyLane's input equals RZ(3), but its optimized output is identity.
+For example, PennyLane's input equals Z, but its optimized output is identity.
 Gate comparisons below ignore global phase, which does not affect measurement probabilities.
 
 ### Qiskit: 100 pp
@@ -68,20 +65,20 @@ Standard `transpile` also produces this error at optimization levels 2 and 3.
 These checks use `basis_gates=["rz", "sx", "x", "cx"]`.
 Level 1 preserves the Z rotation.
 
-### PennyLane: 99.499625 pp
+### PennyLane: 100 pp
 
 ```text
-RZ(1e16); RZ(1); RZ(1); RZ(1); RZ(-1e16)
+RZ(1e17); RZ(pi); RZ(-1e17)
 ```
 
-**Expected:** RZ(3), because the large positive and negative angles cancel.
+**Expected:** RZ(pi), equivalent to Z.
 
 **Output:** identity after `merge_rotations(atol=0)`.
 
-**Cause:** floating-point addition loses each of the three one-radian rotations.
-The large positive and negative angles then cancel.
+**Cause:** floating-point addition rounds `1e17 + pi` back to `1e17`.
+Adding `-1e17` then gives zero, so the middle rotation disappears.
 
-**Measurement:** the +1 probability changes from **0.500375% to 100%**.
+**Measurement:** the +1 probability changes from **0% to 100%**.
 
 Qiskit parses the QASM input.
 The script converts the parsed gates to PennyLane RZ gates.
