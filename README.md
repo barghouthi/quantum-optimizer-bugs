@@ -4,7 +4,7 @@
 [![uv](https://img.shields.io/badge/uv-run-DE5FE9?logo=uv&logoColor=2C1A47)](https://docs.astral.sh/uv/)
 
 > [!WARNING]
-> **Optimization and mapping change a certain or almost-certain −1 outcome into a certain or almost-certain +1 outcome in these examples.**
+> **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in unsound optimization of quantum circuits.**
 
 Across several quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
 This repository provides seven OpenQASM examples that reproduce these errors.
@@ -29,10 +29,10 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 | Qiskit 2.5.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | PennyLane 0.45.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | Cirq 1.7.0 | 0% | 100% | **100 pp** | Floating-point addition |
-| BQSKit 1.2.1 | 0% | 99.998558% | **99.998558 pp** | Incorrect qubit ordering |
+| BQSKit 1.2.1 | 0% | 99.998558% | **99.998558 pp** | Angle applied to the wrong qubit |
 | QuiZX 0.3.0 | ≈0% | 100% | **≈100 pp** | Integer overflow |
 | tket 2.18.5 | 0% | 100% | **100 pp** | Floating-point addition |
-| MQT QMAP 3.10.0 / Core 3.10.1 | 0% | 100% | **100 pp** | Unsupported gate silently replaced |
+| MQT QMAP 3.10.0 / Core 3.10.1 | 0% | 100% | **100 pp** | Angle silently dropped |
 
 ## Input and output for each tool
 
@@ -112,8 +112,8 @@ The first block is identity. The second applies Z to `q[0]`.
 **Output:** an incorrect two-qubit circuit after `BlockConversionPass("variable")`
 and `ExtractDiagonalPass`.
 
-**Cause:** the extraction pass moves a diagonal phase from the second block into
-the first without remapping their different qubit orderings.
+**Cause:** the extraction pass moves a diagonal phase angle from the second block into
+the first without remapping their different qubit orderings, so the angle lands on the wrong qubit.
 The script uses a local cost threshold of `1e-12`, seed `75`, and one synthesis start.
 The large error appears when the phase is merged into the other block.
 Using the same qubit ordering in both blocks preserves the result.
@@ -173,7 +173,7 @@ A full 2*pi RZ rotation is −identity. Controlling it makes that minus sign a Z
 **Output:** `cx q[0],q[1]` after native `mqt.qmap.sc.map_` on two connected qubits.
 CNOT leaves `|++>` unchanged.
 
-**Cause:** the native mapper assumes that every controlled gate is a CNOT.
+**Cause:** the native mapper drops the rotation angle. It assumes that every controlled gate is a CNOT.
 It accepts the unsupported CRZ gate and silently emits a CNOT in the release build.
 The input retains the correct CRZ semantics in MQT Core before mapping.
 This is an input-validation failure in the native mapper; it also occurs with its optional optimizations disabled.
