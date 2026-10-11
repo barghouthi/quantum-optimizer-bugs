@@ -7,19 +7,13 @@
 > **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in unsound optimization of quantum circuits.**
 
 Across several quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
-This repository provides seven OpenQASM examples that reproduce these errors.
+This repository provides seven OpenQASM examples, and one additional MQT Core 4 example, that reproduce these errors.
 Each example shows an almost completely flipped measurement outcome.
 
-Run all seven examples with the locked dependencies:
+Run all examples with the pinned dependencies:
 
 ```sh
-uv run --locked bugs.py
-```
-
-Run the additional MQT Core 4 example separately:
-
-```sh
-uv run --locked mqt_core4.py
+uv run bugs.py
 ```
 
 ## How bad are the outputs?
@@ -214,7 +208,7 @@ See [`normalizeAngle`](https://github.com/munich-quantum-toolkit/core/blob/v4.0.
 and [the normalization pass](https://github.com/munich-quantum-toolkit/core/blob/v4.0.0/mlir/lib/Dialect/MQT/Transforms/NormalizeGlobalPhases.cpp).
 
 **Measurement:** the +1 probability changes from **almost 100% to almost 0%**.
-MQT QMAP 3.10.0 requires MQT Core 3.10, so `mqt_core4.py` runs this example separately.
+MQT QMAP 3.10.0 requires MQT Core 3.10, so `bugs.py` runs this example in a separate environment.
 
 ## How the expected probabilities are checked
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --locked --script
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12,<3.13"
 # dependencies = [
@@ -8,17 +8,19 @@
 #   "sympy==1.14.0", "mqt.qmap==3.10.0", "mqt.core==3.10.1",
 # ]
 # ///
-"""Seven QASM reproducers. Prepare every qubit in |+>; measure X on q[0]."""
+"""QASM reproducers. Prepare every qubit in |+>; measure X on q[0]."""
 
 import math
 import re
+import sys
 from fractions import Fraction
 
 import mpmath as mp
-import sympy as sp
 
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
 mp.mp.dps = 100
+# MQT QMAP 3.10.0 requires MQT Core 3.10, so MQT Core 4 runs in its own environment.
+MQT_CORE4 = ["mqt.core==4.0.0", "qiskit==2.5.1", "mpmath==1.3.0"]
 
 
 def examples():
@@ -65,15 +67,24 @@ def examples():
             "crz(2*pi) q[0],q[1]",
             "Z on q[0]",
         ),
+        "mqt core 4": (
+            'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\n'
+            + "ctrl @ pow(80599999999716496) @ gphase(1) q[0];\n",
+            "ctrl @ pow(80599999999716496) @ gphase(1) q[0] (= p(80599999999716496))",
+            "p(80599999999716496), almost identity",
+        ),
     }
 
 
 def ideal_probability(source):
     """Exact diagonal phases from fixture QASM, then 100-digit probability.
 
-    This small reference supports rz, crz, id, and the fixture's g(a) macro.
+    This small reference supports rz, crz, id, ctrl @ pow(n) @ gphase(a),
+    and the fixture's g(a) macro.
     Unsupported syntax raises an error instead of supplying a guessed reference.
     """
+    import sympy as sp  # not installed in the MQT Core 4 environment
+
     definition = re.search(r"gate g\(a\) x,y \{(.*?)\}", source, re.DOTALL)
     if definition:
         body = definition[1]
@@ -85,14 +96,22 @@ def ideal_probability(source):
             return re.sub(r"\b(a|x|y)\b", lambda m: bindings[m[0]], body)
 
         source = re.sub(r"g\(([^;]*)\) (q\[\d+\]),(q\[\d+\]);", expand, source)
-    qubits = int(re.search(r"qreg q\[(\d+)\];", source)[1])
+    qubits = int(re.search(r"(?:qreg q\[|qubit\[)(\d+)\]", source)[1])
     phases = [sp.S.Zero] * (1 << qubits)
     for statement in source.split(";"):
         statement = statement.strip()
         if not statement or re.fullmatch(
-            r'OPENQASM 2\.0|include "qelib1.inc"|qreg q\[\d+\]|id q\[\d+\]',
+            r'OPENQASM [23]\.0|include "(qelib1|stdgates)\.inc"|qreg q\[\d+\]|qubit\[\d+\] q|id q\[\d+\]',
             statement,
         ):
+            continue
+        # ctrl @ pow(n) @ gphase(a) applies phase n*a when the control is 1.
+        controlled = re.fullmatch(r"ctrl @ pow\((\d+)\) @ gphase\((.*)\) q\[(\d+)\]", statement)
+        if controlled:
+            angle = int(controlled[1]) * sp.sympify(controlled[2], locals={"pi": sp.pi}, rational=True)
+            for basis in range(len(phases)):
+                if (basis >> (qubits - 1 - int(controlled[3]))) & 1:
+                    phases[basis] += angle
             continue
         gate = re.fullmatch(r"(rz|crz)\((.*)\) (q\[\d+\](?:,q\[\d+\])?)", statement)
         if not gate:
@@ -219,7 +238,38 @@ def optimize(tool, source):
         matrix = build_unitary(output)
         order = [0, 2, 1, 3]
         return matrix[order][:, order], len(output)
+    if tool == "mqt core 4":
+        import json
+        import os
+        import subprocess
+
+        import numpy as np
+
+        command = [os.environ.get("UV", "uv"), "run", "--quiet", "--isolated", "--no-project"]
+        command += ["--python", "3.12", *(f"--with={p}" for p in MQT_CORE4)]
+        command += ["python", __file__, "--mqt-core4"]
+        result = subprocess.run(command, input=source, capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError(result.stderr)
+        matrix, count = json.loads(result.stdout)
+        return np.array([[complex(*z) for z in row] for row in matrix]), count
     raise ValueError(f"Unknown tool: {tool}")
+
+
+def mqt_core4(source):
+    """Run in the MQT Core 4 environment; print the output matrix and gate count."""
+    import json
+
+    from mqt.core import mlir
+    from qiskit.quantum_info import Operator
+
+    imported = mlir.compile_program(source, output=mlir.OutputFormat.QC_IMPORT).ir
+    assert "0x4371E5945E0E12C9" in imported  # import preserves K's binary64 bits
+    output = mlir.compile_program(
+        source, output=mlir.OutputFormat.QCO_OPTIMIZED
+    ).to_qiskit()
+    matrix = [[[z.real, z.imag] for z in row] for row in Operator(output).data]
+    print(json.dumps([matrix, len(output.data)]))
 
 
 def main():
@@ -244,4 +294,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--mqt-core4"]:
+        mqt_core4(sys.stdin.read())
+    else:
+        main()
