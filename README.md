@@ -83,13 +83,12 @@ Each rotation is in its own one-gate block.
 ```
 
 **Expected:** RZ(≈1). **Actual:** identity after
-`ForEachBlockPass(ScanningGateRemovalPass(), calculate_error_bound=True)` followed
+`ForEachBlockPass(ScanningGateRemovalPass())` followed
 by `UnfoldPass`. Each block's small rotation is removed independently.
 
 Measuring Y changes P(+1) from **92.073549% to 50%**.
 This is an explicitly configured approximation workflow: accepted local errors
-accumulate into a large circuit error. It records an error bound of 0.5 without
-enforcing a global limit.
+accumulate into a large circuit error.
 
 ### QuiZX: 99.998195 pp
 
@@ -129,9 +128,6 @@ uv run bugs.py
 
 # Select tools
 uv run bugs.py --tools pennylane cirq quizx tket
-
-# Export exact QASM inputs and full precision results
-uv run bugs.py --qasm-dir qasm-inputs --json results.json
 ```
 
 Qiskit's 600,000 gates and BQSKit's 10,000 separate block optimizations dominate
@@ -139,26 +135,20 @@ runtime. The large circuits demonstrate accumulated error.
 
 ## How the expected probabilities are checked
 
-The independent reference sums angles with exact rational arithmetic and keeps
-mathematical π separate. QASM literals for `3e-6` and `1e-4` spell out their exact
-stored binary64 values. The reference also accounts for the X gates in Qiskit's
-echo; it does not use a framework's floating-point matrix as the ideal answer.
+The expected rotations are derived analytically, using exact rational arithmetic
+for numeric angles and mathematical π. QASM literals for `3e-6` and `1e-4` spell
+out their exact stored binary64 values. The reference also accounts for the X
+gates in Qiskit's echo; it does not use a framework's floating-point matrix as
+the ideal answer.
 
-Final probabilities are evaluated at 100 and 160 decimal digits and checked for
-agreement within absolute 10⁻⁷⁰. This is an empirical numerical stability check.
-Import and optimization errors are measured separately. In these examples,
-QuiZX's error occurs during import; the other five have zero measured import
-error. The displayed percentages are rounded.
+Ideal probabilities are evaluated at 100 decimal digits. Output probabilities
+are calculated from each tool's native output matrix. The script prints only
+the input, expected rotation, output, measurement probabilities, and their
+absolute difference in percentage points. The displayed percentages are rounded.
 
-The script also prints **unitary error E**, a secondary measure:
-
-```text
-E(U, V) = min over phi in [0, 2*pi) of ||U - exp(i*phi) V||_op
-```
-
-One global phase multiplies the entire output matrix; the operator norm is the
-largest singular value. This standard metric removes unobservable global phase
-and is unitless. See Haah et al., [Definition 1.4, Equation (3)](https://www.cs.cmu.edu/~./odonnell/papers/estimating-unitaries.pdf#page=4).
+The tests check the ideal probabilities at 100 and 160 digits for agreement
+within absolute 10⁻⁷⁰ and compare the Qiskit echo reference with an independent
+matrix calculation.
 
 Run the small reference tests with:
 
