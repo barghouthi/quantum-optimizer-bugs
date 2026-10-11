@@ -12,28 +12,11 @@ uv run bugs.py
 
 ## How bad are the outputs?
 
-For each example, prepare **|+⟩ = (|0⟩ + |1⟩)/√2**.
-Apply the circuit. Then measure X.
+For each example, prepare `|+>`.
+Apply the circuit. Then measure in the X basis.
 Compare the expected probability of the **+1** outcome with the output probability.
 
-Measuring X distinguishes two states:
-
-- **|+⟩ = (|0⟩ + |1⟩)/√2** gives outcome **+1**.
-- **|−⟩ = (|0⟩ − |1⟩)/√2** gives outcome **−1**.
-
-To measure X with a standard Z measurement, apply H first.
-A measured bit of 0 means +1. A measured bit of 1 means −1.
-The script calculates these probabilities from the circuit matrix.
-It does not sample measurement outcomes.
-
 The error is the absolute probability difference, in **percentage points (pp)**:
-
-```text
-error (pp) = 100 × |expected probability − output probability|
-```
-
-The formula uses probabilities between 0 and 1.
-For example, a change from 0% to 100% is a **100 pp** error.
 
 | Tool / tested version | Expected +1 probability | Output +1 probability | Error | Cause |
 |---|---:|---:|---:|---|
@@ -48,7 +31,6 @@ For example, a change from 0% to 100% is a **100 pp** error.
 
 The input gates below execute from left to right.
 `RZ(a)` is a Z rotation by angle `a`, in radians.
-The QASM symbol `pi` means mathematical π.
 
 All six output circuits act as **identity**. They leave the prepared state unchanged.
 Gate comparisons below ignore global phase, which does not affect measurement probabilities.
