@@ -7,6 +7,7 @@
 #   "pyzx==0.9.0", "pytket==2.18.5", "mpmath==1.3.0", "ply==3.11",
 #   "sympy==1.13.0", "mqt.qmap==3.10.0", "mqt.core==3.10.1",
 #   "qrisp==0.9.9", "cuda-quantum-cu13==0.16.0",
+#   "qbraid==0.12.1", "pyqasm==1.0.4",
 # ]
 # ///
 """QASM reproducers. Prepare every qubit in |+>; measure X on q[0]."""
@@ -76,6 +77,13 @@ def examples():
             "rz(1e17); rz(pi); rz(-1e17)",
             "Z",
         ),
+        "qbraid": (
+            HEADER
+            + "qreg q[1];\nu3(0,100000000000000000,0) q[0];\n"
+            + "rz(-100000000000000000) q[0];\n",
+            "u3(0,1e17,0); rz(-1e17)",
+            "identity (up to global phase)",
+        ),
         "cudaq": (
             HEADER
             + "qreg q[1];\nrz(100000000000000000) q[0];\nrz(pi) q[0];\nrz(-100000000000000000) q[0];\n",
@@ -105,7 +113,7 @@ def examples():
 def ideal_probability(source):
     """Exact diagonal phases from fixture QASM, then 100-digit probability.
 
-    This small reference supports rz, crz, id, ctrl @ pow(n) @ gphase(a),
+    This small reference supports rz, crz, u3(0,phi,lambda), id, ctrl @ pow(n) @ gphase(a),
     and the fixture's g(a) macro.
     Unsupported syntax raises an error instead of supplying a guessed reference.
     """
@@ -139,17 +147,27 @@ def ideal_probability(source):
                 if (basis >> (qubits - 1 - int(controlled[3]))) & 1:
                     phases[basis] += angle
             continue
-        gate = re.fullmatch(r"(rz|crz)\((.*)\) (q\[\d+\](?:,q\[\d+\])?)", statement)
+        gate = re.fullmatch(r"(rz|crz|u3)\((.*)\) (q\[\d+\](?:,q\[\d+\])?)", statement)
         if not gate:
             raise ValueError(f"Unsupported reference gate: {statement}")
-        angle = sp.sympify(gate[2], locals={"pi": sp.pi}, rational=True)
+        angles = [
+            sp.sympify(a, locals={"pi": sp.pi}, rational=True)
+            for a in gate[2].split(",")
+        ]
         wires = [int(q) for q in re.findall(r"q\[(\d+)\]", gate[3])]
-        if len(wires) != (1 if gate[1] == "rz" else 2):
+        if len(wires) != (2 if gate[1] == "crz" else 1):
             raise ValueError(f"Wrong gate arity: {statement}")
+        if gate[1] == "u3":
+            if len(angles) != 3 or angles[0] != 0:
+                raise ValueError(f"Unsupported reference gate: {statement}")
+        elif len(angles) != 1:
+            raise ValueError(f"Wrong parameter count: {statement}")
         for basis in range(len(phases)):
             bits = [(basis >> (qubits - 1 - q)) & 1 for q in wires]
-            if gate[1] == "rz" or bits[0]:
-                phases[basis] += angle * (bits[-1] - sp.Rational(1, 2))
+            if gate[1] == "u3":
+                phases[basis] += (angles[1] + angles[2]) * bits[0]
+            elif gate[1] == "rz" or bits[0]:
+                phases[basis] += angles[0] * (bits[-1] - sp.Rational(1, 2))
     half = len(phases) // 2
     probability = (
         1 + sum(sp.cos(phases[i] - phases[i + half]) for i in range(half)) / half
@@ -296,6 +314,30 @@ def optimize(tool, source):
         gates = [i for i in output.data if i.op.name != "qb_alloc"]
         # The compiled unitary is complex64; widen it before computing probabilities.
         return np.asarray(output.get_unitary(), dtype=np.complex128), len(gates)
+    if tool == "qbraid":
+        from qbraid.transpiler.conversions.qasm2.qasm2_to_qasm3 import qasm2_to_qasm3
+        from qbraid.transpiler.conversions.qasm3.qasm3_to_ionq import qasm3_to_ionq
+        from qiskit import QuantumCircuit
+        from qiskit.quantum_info import Operator
+
+        # Check the input independently before testing qBraid's conversion.
+        parsed = qiskit_load(source)
+        assert [i.operation.name for i in parsed.data] == ["u3", "rz"]
+        assert [list(i.operation.params) for i in parsed.data] == [
+            [0, 1e17, 0], [-1e17]
+        ]
+        assert abs(output_probability(Operator(parsed).data) - 1) < 1e-12
+        # Use the SDK's QASM 3 path, which lowers U3 to IonQ's rotation gates.
+        # Direct calls avoid discovering unrelated optional backends.
+        output = qasm3_to_ionq(qasm2_to_qasm3(source))
+        # Simulate the emitted IonQ rotations directly, without an optimizer.
+        # This fixture emits only RX and RZ gates; reject anything else.
+        circuit = QuantumCircuit(output["qubits"])
+        for gate in output["circuit"]:
+            assert set(gate) == {"gate", "target", "rotation"}
+            assert gate["gate"] in ("rx", "rz")
+            getattr(circuit, gate["gate"])(gate["rotation"], gate["target"])
+        return Operator(circuit).data, len(output["circuit"])
     if tool == "cudaq":
         import cudaq
         import numpy as np

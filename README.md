@@ -7,7 +7,7 @@
 > **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in unsound optimization of quantum circuits.**
 
 Across several quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
-This repository provides ten OpenQASM examples that reproduce these errors.
+This repository provides eleven OpenQASM examples that reproduce these errors.
 It also provides one additional MQT Core 4 example.
 Each example shows an almost completely flipped measurement outcome.
 
@@ -36,6 +36,7 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 | tket 2.18.5 | 0% | 100% | **100 pp** | Floating-point addition |
 | BQSKit 1.2.1 | 0% | 99.998558% | **99.998558 pp** | Angle applied to the wrong qubit |
 | Qrisp 0.9.9 | 0% | 100% | **100 pp** | Floating-point addition |
+| qBraid 0.12.1 / PyQASM 1.0.4 | 100% | 0% | **100 pp** | Floating-point addition in gate decomposition |
 | CUDA-Q 0.16.0 | 0% | 100% | **100 pp** | Floating-point addition |
 | quilc 1.26.0 (pyQuil's compiler) | 0% | 100% | **100 pp** | Floating-point addition |
 | MQT QMAP 3.10.0 / Core 3.10.1 | 0% | 100% | **100 pp** | Angle silently dropped |
@@ -46,8 +47,8 @@ The input gates below execute from left to right.
 `rz(a)` is a Z rotation by angle `a`, in radians.
 
 The optimized circuits act as **identity** in eight examples.
-BQSKit and MQT QMAP produce different incorrect circuits.
-None of the input circuits is equivalent to identity.
+BQSKit, qBraid, and MQT QMAP produce different incorrect circuits.
+The qBraid input is equivalent to identity; the other inputs are not.
 Gate comparisons below ignore global phase, which does not affect measurement probabilities.
 
 ### Qiskit: 100 pp
@@ -185,6 +186,36 @@ See [`fuse_adjacents`](https://github.com/eclipse-qrisp/Qrisp/blob/c30b323ad9350
 Qrisp has no 0.9.9 tag. This link uses the commit that sets the version to 0.9.9.
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
+
+### qBraid: 100 pp
+
+```text
+u3(0,1e17,0); rz(-1e17)
+```
+
+**Expected:** identity up to global phase. With a zero first parameter,
+`u3(0,a,0)` is `diag(1,exp(i*a))`, equivalent to `rz(a)` up to global phase.
+The following `rz(-a)` cancels it.
+
+**Output:** six RX/RZ gates equivalent to Z after qBraid's
+`qasm3_to_ionq(qasm2_to_qasm3(source))`.
+This example tests the SDK's conversion to IonQ format.
+The script uses the QASM 3 path to lower U3 to IonQ's supported gates.
+It calls the converters directly to avoid discovering unrelated optional backends.
+
+**Cause:** qBraid unrolls the U3 gate through PyQASM before emitting IonQ rotations.
+PyQASM's decomposition includes a final `rz(phi + pi)`.
+With `phi = 1e17`, floating-point addition rounds `phi + pi` back to `phi`.
+Losing that pi rotation changes the circuit from identity to Z.
+The input's large angles are exact 64-bit floating-point values.
+The script checks that an independent QASM import preserves the angles and the correct outcome.
+See [the U3 decomposition](https://github.com/qBraid/pyqasm/blob/v1.0.4/src/pyqasm/maps/gates.py)
+and [qBraid's IonQ conversion](https://github.com/qBraid/qBraid/blob/v0.12.1/qbraid/transpiler/conversions/qasm3/qasm3_to_ionq.py).
+
+**Measurement:** the +1 probability changes from **100% to 0%**.
+
+The script simulates the emitted IonQ RX/RZ rotations with Qiskit,
+without running a Qiskit optimization pass.
 
 ### CUDA-Q: 100 pp
 
