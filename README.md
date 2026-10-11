@@ -3,14 +3,13 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/badge/uv-run-DE5FE9?logo=uv&logoColor=2C1A47)](https://docs.astral.sh/uv/)
 
-This repository reproduces large measurement errors in all six tools tested here.
-These tools include quantum SDKs and circuit optimizers.
-Each optimizer removes a rotation that affects the measurement result.
-
 > [!WARNING]
 > **Optimization changes an almost-certain −1 outcome into a certain +1 outcome.**
 
-All six examples have approximately **100 percentage points** of error.
+Across many quantum SDKs and optimization tools, we find bugs and approximation
+errors that change expected measurement outcomes. This repository provides six
+OpenQASM examples that reproduce these errors. Each example has approximately
+**100 percentage points** of error.
 
 Run all six examples:
 
