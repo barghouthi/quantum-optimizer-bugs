@@ -32,7 +32,9 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 The input gates below execute from left to right.
 `RZ(a)` is a Z rotation by angle `a`, in radians.
 
-All six output circuits act as **identity**. They leave the prepared state unchanged.
+In all six examples, the circuit produced by the optimizer acts as **identity**.
+None of the input circuits is equivalent to identity.
+For example, PennyLane's input equals RZ(3), but its optimized output is identity.
 Gate comparisons below ignore global phase, which does not affect measurement probabilities.
 
 ### Qiskit: 100 pp
