@@ -1,121 +1,167 @@
 # quantum-optimizer-bugs
 
-One standalone [uv](https://docs.astral.sh/uv/) script reproducing six large,
-finite discrepancies in quantum circuit importers and optimizers. One example
-per tool; no parameter sweeps, overflow example, or dependency on another project.
+Six OpenQASM circuits whose import or optimization erases a substantial rotation
+and produces the identity circuit. The resulting measurement probabilities change
+by **42 to 100 percentage points**. One standalone script reproduces all six:
 
 ```sh
 uv run bugs.py
 ```
 
-The script declares its pinned dependencies inline and uses Python 3.12. The first
-run installs the quantum frameworks. Subsequent runs reuse uv's cache. All tools
-receive circuits parsed from OpenQASM 2.0.
+## How bad are the outputs?
 
-Select examples, export their exact inputs, or save full precision results:
+For every example, prepare **|+X> = (|0> + |1>)/√2**, apply the circuit, then
+measure the indicated Pauli observable. The table compares the probability of
+outcome **+1** for the ideal input circuit and the actual output circuit.
+
+**Percentage points (pp)** are the absolute difference between the probabilities:
+0% → 100% is a 100 pp change. These are concrete measurement witnesses, selected
+from X and Y measurements, rather than a search over all states and measurements.
+
+| Tool / tested version | Measure | Ideal probability | Output probability | Change | Error occurs during |
+|---|---|---:|---:|---:|---|
+| Qiskit 2.5.1 | Y | 96.601954% | 50% | **46.601954 pp** | Optimization |
+| PennyLane 0.45.1 | X | 0.500375% | 100% | **99.499625 pp** | Optimization |
+| Cirq 1.7.0 | X | 0% | 100% | **100 pp** | Optimization |
+| BQSKit 1.2.1 | Y | 92.073549% | 50% | **42.073549 pp** | Local approximation |
+| QuiZX 0.3.0 | X | 0.001805% | 100% | **99.998195 pp** | QASM import |
+| tket 2.18.5 | X | 0% | 100% | **100 pp** | Optimization |
+
+## Input and output for each tool
+
+Circuits below execute left to right. Angles are in radians; `pi` means
+mathematical π. `P(a) = diag(1, exp(i*a))` is a phase gate; `RZ(a)` is a Z rotation.
+Expected unitaries are stated up to global phase. All six actual outputs are
+the **identity**: the circuit's action has been erased.
+
+### Qiskit: 46.601954 pp
+
+```text
+[P(d); P(d); X; P(-d); P(-d); X] × 100,000
+d = 3e-6
+```
+
+**Expected:** RZ(≈1.2). Each six-gate block implements RZ(4d), so the small
+rotations accumulate into a substantial rotation across 600,000 gates.
+**Actual:** identity after `CommutativeCancellation` + `InverseCancellation`.
+Local commutation cutoffs allow the whole accumulated rotation to disappear.
+
+Measuring Y changes P(+1) from **96.601954% to 50%**.
+
+### PennyLane: 99.499625 pp
+
+```text
+RZ(1e16); RZ(1); RZ(1); RZ(1); RZ(-1e16)
+```
+
+**Expected:** RZ(3), because the large positive and negative angles cancel.
+**Actual:** identity after `merge_rotations(atol=0)`. Floating-point addition
+loses the three one-radian contributions while merging the angles.
+
+Measuring X changes P(+1) from **0.500375% to 100%**.
+The QASM is parsed with Qiskit and adapted to native PennyLane RZ operations
+before running the PennyLane optimization.
+
+### Cirq: 100 pp
+
+```text
+RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)
+```
+
+**Expected:** RZ(pi), equivalent to Z. **Actual:** identity after `eject_z(atol=0)`.
+The importer preserves the rotation; adding the large exponents during
+optimization loses the middle Z.
+
+Measuring X changes P(+1) from **0% to 100%**: the two circuits give opposite
+outcomes with certainty.
+
+### BQSKit: 42.073549 pp
+
+```text
+[RZ(1e-4)] × 10,000
+Each rotation is in its own one-gate block.
+```
+
+**Expected:** RZ(≈1). **Actual:** identity after
+`ForEachBlockPass(ScanningGateRemovalPass(), calculate_error_bound=True)` followed
+by `UnfoldPass`. Each block's small rotation is removed independently.
+
+Measuring Y changes P(+1) from **92.073549% to 50%**.
+This is an explicitly configured approximation workflow: accepted local errors
+accumulate into a large circuit error. It records an error bound of 0.5 without
+enforcing a global limit.
+
+### QuiZX: 99.998195 pp
+
+```text
+RZ(10000000000000114)
+```
+
+**Expected:** RZ(≈−3.13309558725), a rotation close to Z after reducing its angle
+modulo 2π. **Actual:** identity already after `quizx.qasm` import and circuit
+extraction. Applying `full_simp` adds zero further error.
+
+Measuring X changes P(+1) from **0.001805% to 100%**. This is an **import issue**;
+the optimization preserves the circuit it receives.
+
+### tket: 100 pp
+
+```text
+RZ(1e16*pi); RZ(pi); RZ(-1e16*pi)
+```
+
+**Expected:** RZ(pi), equivalent to Z. **Actual:** identity after
+`RemoveRedundancies`. QASM import retains the middle rotation; the optimization
+pass erases it.
+
+Measuring X changes P(+1) from **0% to 100%**: the two circuits give opposite
+outcomes with certainty.
+
+## Run the examples
+
+[uv](https://docs.astral.sh/uv/) installs the dependencies declared in `bugs.py`
+and uses Python 3.12. The first run installs the quantum frameworks; later runs
+reuse its cache. Every tool receives a circuit parsed from OpenQASM 2.0.
 
 ```sh
+# All six examples
+uv run bugs.py
+
+# Select tools
 uv run bugs.py --tools pennylane cirq quizx tket
+
+# Export exact QASM inputs and full precision results
 uv run bugs.py --qasm-dir qasm-inputs --json results.json
 ```
 
-The Qiskit example expands 600,000 gates. BQSKit optimizes 10,000 individual
-blocks with one worker. These two examples dominate runtime; they retain the
-large accumulated errors. The implementation uses a specialized rational phase
-reference instead of general circuit simulation and has no report UI dependency.
+Qiskit's 600,000 gates and BQSKit's 10,000 separate block optimizations dominate
+runtime. The large circuits demonstrate accumulated error.
 
-## Examples
+## How the expected probabilities are checked
 
-Circuits execute left to right. `P(a) = diag(1, exp(i*a))` and
-`RZ(a) = diag(exp(-i*a/2), exp(i*a/2))`.
+The independent reference sums angles with exact rational arithmetic and keeps
+mathematical π separate. QASM literals for `3e-6` and `1e-4` spell out their exact
+stored binary64 values. The reference also accounts for the X gates in Qiskit's
+echo; it does not use a framework's floating-point matrix as the ideal answer.
 
-| Tool / version | Input | Expected, up to global phase | Observed output | Unitary error E | Measurement change |
-|---|---|---|---|---:|---:|
-| Qiskit 2.5.1 | `[P(d); P(d); X; P(-d); P(-d); X]` × 100,000; d=3e-6 | RZ(≈1.2) | Identity | 0.591040413323 | 46.6019543 pp |
-| PennyLane 0.45.1 | RZ(1e16); RZ(1); RZ(1); RZ(1); RZ(-1e16) | RZ(3) | Identity | 1.36327752005 | 99.4996248 pp |
-| Cirq 1.7.0 | RZ(1e16*pi); RZ(pi); RZ(-1e16*pi) | Z | Identity | 1.41421356237 | 100 pp |
-| BQSKit 1.2.1 | RZ(1e-4) × 10,000, one gate per block | RZ(≈1) | Identity | 0.494807918509 | 42.0735492 pp |
-| QuiZX 0.3.0 | RZ(10000000000000114 radians) | RZ(≈−3.13309558725) | Identity | 1.41120620719 | 99.9981950 pp |
-| tket 2.18.5 | RZ(1e16*pi); RZ(pi); RZ(-1e16*pi) | Z | Identity | 1.41421356237 | 100 pp |
+Final probabilities are evaluated at 100 and 160 decimal digits and checked for
+agreement within absolute 10⁻⁷⁰. This is an empirical numerical stability check.
+Import and optimization errors are measured separately. In these examples,
+QuiZX's error occurs during import; the other five have zero measured import
+error. The displayed percentages are rounded.
 
-QASM numeric literals for `d` and `1e-4` spell out their exact stored binary64
-values. `pi` denotes mathematical π in the reference.
-
-The report checks import and optimization separately. QuiZX's discrepancy occurs
-entirely during QASM import: `full_simp` adds zero error. The other five cases
-have zero measured import error and a discrepancy introduced by optimization.
-Stage errors are separate comparisons; they are not summed to obtain the total.
-
-BQSKit uses an explicitly configured local approximation workflow:
-`ForEachBlockPass(ScanningGateRemovalPass(), calculate_error_bound=True)` followed
-by `UnfoldPass`. It records a bound but does not enforce it as a global error
-limit. This demonstrates accumulated local approximation, rather than a failure
-of its default compilation pipeline or a promise of exact semantics.
-
-PennyLane's pinned QASM plugin is incompatible with the pinned Qiskit version.
-Its example therefore uses Qiskit's QASM parser and an explicit adapter mapping
-the parsed RZ instructions to native PennyLane RZ operations. The report names
-this adapter; this is a test of PennyLane optimization, not its own QASM plugin.
-
-## What does the unitary error mean?
-
-The error is the **operator norm distance up to global phase**:
+The script also prints **unitary error E**, a secondary measure:
 
 ```text
 E(U, V) = min over phi in [0, 2*pi) of ||U - exp(i*phi) V||_op
 ```
 
-`phi` is one real number. `exp(i*phi)` multiplies the entire matrix V by a single
-complex scalar of magnitude one. The minimization removes the unobservable
-global phase: U and −U represent the same channel, so their error is zero.
-It does not allow a separate phase for each basis state or each matrix entry.
-The operator/spectral norm is the largest singular value, equivalently the
-maximum Euclidean output-vector difference over normalized input states for
-that fixed phase. E is unitless; it is not a percentage or an angle.
+One global phase multiplies the entire output matrix; the operator norm is the
+largest singular value. This standard metric removes unobservable global phase
+and is unitless. See Haah et al., [Definition 1.4, Equation (3)](https://www.cs.cmu.edu/~./odonnell/papers/estimating-unitaries.pdf#page=4).
 
-This is a standard metric on unitary operators modulo global phase. See
-Haah, Kothari, O'Donnell, and Tang, *Query-optimal estimation of unitary channels
-in diamond distance*, [Definition 1.4, Equation (3), page 4](https://www.cs.cmu.edu/~./odonnell/papers/estimating-unitaries.pdf#page=4)
-([arXiv:2302.14066](https://arxiv.org/abs/2302.14066)). Their Proposition 1.6
-relates it to diamond-norm distance; it is not itself the diamond norm.
-
-All six circuits have the form `global * diag(1, exp(i*theta))` after their X
-gates cancel. If Δ is the difference in relative phases, reduced to [−π, π],
-the exact minimization has the simple formula:
-
-```text
-E = 2 * sin(abs(Δ) / 4)
-```
-
-The optimal global phase centers the two relative eigenphases at ±Δ/2. For
-example, identity versus Z gives E=√2. The code computes this formula directly,
-without a heuristic phase alignment or a numerical search over phi.
-
-The report also gives a concrete measurement witness: prepare |+X>, measure X
-or Y, and compare the probability of outcome +1. Its percentage-point change
-has direct physical meaning. The displayed witness is the stronger of these
-two probes, not a maximum over every possible state and measurement.
-
-## Independent reference
-
-Native gate angles are accumulated with exact `Fraction` arithmetic, preserving
-binary64 values and rational multiples of mathematical π. The analytic ideal is
-derived independently from each QASM fixture. The reference handles the X gates
-with `X P(a) X = global * P(-a)`; it sums angles before evaluating any trigonometry.
-It does not use a framework's numerical matrix as the ideal answer.
-
-Final errors and probabilities are evaluated at 100 and 160 decimal digits. The
-script checks agreement within absolute 10⁻⁷⁰. This is an empirical numerical
-stability check, not an interval proof or a formal equivalence certificate.
-JSON retains 80-digit results; the report rounds them for readability. Native
-execution failures and reference failures produce a nonzero process exit status.
-
-Run the small reference tests without installing every quantum framework:
+Run the small reference tests with:
 
 ```sh
 uv run --with mpmath==1.3.0 python -m unittest discover -s tests -v
 ```
-
-Tests cover exact residuals, global phase and periodicity, tiny nonzero errors,
-stage attribution, and phase accumulation against independent dense matrix
-products. To exercise the framework loaders and passes, run `uv run bugs.py`.
