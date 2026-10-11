@@ -1,4 +1,7 @@
-# quantum-optimizer-bugs
+# Quantum optimizer bugs
+
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![uv](https://img.shields.io/badge/uv-run-DE5FE9?logo=uv&logoColor=2C1A47)](https://docs.astral.sh/uv/)
 
 This script runs six OpenQASM circuits through quantum circuit optimizers.
 Each optimizer removes a rotation that affects the measurement result.
