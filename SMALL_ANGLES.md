@@ -2,7 +2,7 @@
 
 The examples in [README.md](README.md) mostly use very large angles.
 The examples on this page use only small angles.
-Tolerance checks and expression rewriting remove or change small rotations.
+Tolerance checks, numerical shortcuts, and other angle-handling errors remove or change small rotations.
 Many small errors then add up to an almost completely flipped measurement outcome.
 
 Run all small-angle examples with the pinned dependencies:
@@ -25,7 +25,10 @@ Compare the expected probability of the **+1** outcome with the output probabili
 | Qiskit 2.5.1 | 1.4×10⁻⁴ | 44,432 | 0% | 100% | **100 pp** | Two-qubit synthesis drops small entangling components |
 | PennyLane 0.45.1 | 9.0×10⁻³ | 353 | 0% | 100% | **100 pp** | Tolerance is 400 times larger than intended |
 | Cirq 1.7.0 | 1×10⁻⁵ | 300,003 | 0.500375% | 100% | **99.499625 pp** | Commutation check with a relative tolerance |
+| PyZX 0.9.0 | 0.01 | 163 | 0.010812% | 99.999984% | **99.989172 pp** | Phase teleportation loses the sign of a fused phase |
+| QuiZX 0.3.0 | 0.01 | 317 | 0.000486% | 99.402667% | **99.402182 pp** | Integer overflow during phase addition |
 | tket 2.18.5 | 6.1×10⁻¹⁰ | 47 | ≈0% | 99.836003% | **99.836003 pp** | Shortcut divides two values near zero |
+| BQSKit 1.2.1 | 2.8×10⁻⁴ | 44,880 | ≈0% | 100% | **≈100 pp** | Gate removal compares a distance threshold with a cost |
 | Qrisp 0.9.9 | 7×10⁻⁵ | 44,880 | ≈0% | 100% | **≈100 pp** | Two small rotations are cancelled as inverses |
 | qBraid 0.12.1 | 7.7×10⁻³ | 500 | 0% | ≈100% | **≈100 pp** | `a/b*pi` changes to `a/(b*pi)` |
 
@@ -133,6 +136,52 @@ and [the commutation check](https://github.com/quantumlib/Cirq/blob/v1.7.0/cirq-
 
 `optimize_for_target_gateset` uses the same transformer with `reorder_operations=True`.
 
+### PyZX: 99.989172 pp
+
+```text
+s; x; rz(0.01) (155 times); x; rz(0.01); s; x; sdg; rz(0.01)
+```
+
+All gates act on `q[0]`. The two `x` gates around the 155 rotations reverse their direction.
+
+**Expected:** the +1 probability is 0.010812%.
+
+**Output:** seven gates after `zx.teleport_reduce`, which is PyZX's phase-teleportation pass.
+The output phase is approximately +1.57. The correct phase at this location is approximately −1.55.
+`full_reduce` followed by `extract_circuit` gives the correct result.
+
+**Cause:** phase teleportation loses the sign of a fused phase.
+The pass fuses the 155 rotations into one phase of 1.55. The `x` gates make this phase negative.
+The pass records the sign as a multiplier.
+When the fused phase meets a Clifford phase, the pass sets the multiplier to +1.
+The next fusion then adds the phase instead of subtracting it.
+See [the phase fusion](https://github.com/zxcalc/pyzx/blob/v0.9.0/pyzx/simplify.py#L276-L290).
+
+**Measurement:** the +1 probability changes from **0.010812% to 99.999984%**.
+
+### QuiZX: 99.402182 pp
+
+```text
+rz(0.01) (314 times); rz(0.001); rz(0.002); rz(0.003)
+```
+
+The angles add up to 3.146, so the circuit is almost Z.
+
+**Expected:** `rz(3.146)`. The +1 probability is 0.000486%.
+
+**Output:** one rotation of approximately 0.155 after `full_simp`.
+
+**Cause:** integer overflow during phase addition.
+This is the same cause as the [QuiZX example](README.md#quizx-approximately-100-pp), but with ordinary decimal angles.
+QuiZX stores each phase as a fraction of π with 64-bit integers.
+Import converts each decimal angle to a fraction with a large denominator, for example 383/120323 for 0.01.
+The conversion error is less than 10⁻⁷ of the angle.
+Four different decimal angles are sufficient to make the sum of the fractions overflow.
+See [the import conversion](https://github.com/zxcalc/quizx/blob/quizx-py-v0.3.0/quizx/src/circuit.rs#L457-L466)
+and [the phase addition](https://github.com/zxcalc/quizx/blob/quizx-py-v0.3.0/quizx/src/phase.rs#L164-L166).
+
+**Measurement:** the +1 probability changes from **0.000486% to 99.402667%**.
+
 ### tket: 99.836003 pp
 
 ```text
@@ -160,6 +209,31 @@ See [the shortcut](https://github.com/CQCL/tket/blob/v2.18.5/tket/src/Gate/Rotat
 and [the tolerance](https://github.com/CQCL/tket/blob/v2.18.5/tket/include/tket/Utils/Constants.hpp#L38).
 
 **Measurement:** the +1 probability changes from **almost 0% to 99.836003%**.
+
+### BQSKit: approximately 100 pp
+
+```text
+(rz(0.00028) q[0]; cx q[0],q[1]; cx q[0],q[2]; cx q[0],q[3])   (11,220 times)
+```
+
+For the `|+>` input, the `cx` gates have no effect. The rotations add up to approximately π.
+
+**Expected:** `rz(3.1416)` on `q[0]`, almost Z.
+
+**Output:** the 33,660 `cx` gates and no rotations,
+after `QuickPartitioner(3)`, `ForEachBlockPass(ScanningGateRemovalPass())`, and `UnfoldPass()` with default settings.
+
+**Cause:** the gate-removal pass compares a distance threshold with a cost.
+The pass removes a gate from a block if the cost of the result is less than 10⁻⁸.
+For a small rotation by θ, this cost is approximately θ²/8. For `rz(0.00028)`, it is 9.8×10⁻⁹.
+Thus each block loses its rotation.
+BQSKit's own distance for this change is 1.4×10⁻⁴, approximately 14,000 times the threshold.
+BQSKit's `compile` function documents the same default threshold as a maximum distance.
+The 11,220 blocks each lose one rotation, and together they lose approximately π.
+See [the removal check](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/scan.py#L131)
+and [the threshold documentation](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/compiler/compile.py#L259-L261).
+
+**Measurement:** the +1 probability changes from **almost 0% to 100%**.
 
 ### Qrisp: approximately 100 pp
 

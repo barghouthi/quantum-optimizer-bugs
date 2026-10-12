@@ -49,10 +49,33 @@ def examples():
             "h q[1]; cx q[0],q[1]; 300000 x rz(1e-5) q[1]; cx q[0],q[1]",
             "rz(3) on q[0]",
         ),
+        "pyzx": (
+            HEADER
+            + "qreg q[1];\ns q[0];\nx q[0];\n"
+            + "rz(0.01) q[0];\n" * 155
+            + "x q[0];\nrz(0.01) q[0];\ns q[0];\nx q[0];\nsdg q[0];\nrz(0.01) q[0];\n",
+            "s; x; 155 x rz(0.01); x; rz(0.01); s; x; sdg; rz(0.01)",
+            "+1 probability 0.010812%",
+        ),
+        "quizx": (
+            HEADER
+            + "qreg q[1];\n"
+            + "rz(0.01) q[0];\n" * 314
+            + "rz(0.001) q[0];\nrz(0.002) q[0];\nrz(0.003) q[0];\n",
+            "314 x rz(0.01); rz(0.001); rz(0.002); rz(0.003)",
+            "rz(3.146), almost Z",
+        ),
         "tket": (
             HEADER + "qreg q[2];\ns q[0];\n" + tket_block * 5 + "s q[0];\n",
             "s q[0]; 5 x (four rotations up to 6.134e-10, z, y, cx, x, cx); s q[0]",
             "Z on q[0]",
+        ),
+        "bqskit": (
+            HEADER
+            + "qreg q[4];\n"
+            + "rz(0.00028) q[0];\ncx q[0],q[1];\ncx q[0],q[2];\ncx q[0],q[3];\n" * 11220,
+            "11220 x (rz(0.00028) q[0]; cx q[0],q[1]; cx q[0],q[2]; cx q[0],q[3])",
+            "rz(3.1416) on q[0], almost Z",
         ),
         "qrisp": (
             HEADER + "qreg q[1];\n" + "u3(0.00007,0,0) q[0];\n" * 44880,
@@ -244,6 +267,35 @@ def optimize(tool, source):
         return output.unitary(qubit_order=sorted(circuit.all_qubits())), len(
             list(output.all_operations())
         )
+    if tool == "pyzx":
+        from fractions import Fraction
+
+        import pyzx as zx
+
+        circuit = zx.Circuit.from_qasm(source)
+        # PyZX stores phases as fractions of pi. Check that import preserves them.
+        phases = [g.phase for g in circuit.gates if type(g).__name__ == "ZPhase"]
+        assert len(phases) == 157
+        assert set(phases) == {Fraction(0.01 / math.pi).limit_denominator(10**8)}
+        output = zx.Circuit.from_graph(zx.teleport_reduce(circuit.to_graph()))
+        return output.to_matrix(), len(output.gates)
+    if tool == "quizx":
+        from fractions import Fraction
+
+        import quizx
+
+        graph = quizx.qasm(source)
+        # QuiZX stores phases as 64-bit rationals of pi. Import approximates each
+        # decimal angle with a relative error below 1e-7.
+        phases = [graph.phase(v) for v in graph.vertices() if graph.type(v) == 1]
+        assert len(phases) == 317 and phases[0] == Fraction(383, 120323)
+        assert all(abs(float(p) * math.pi / a - 1) < 1e-7 for p, a in zip(
+            phases, [0.01] * 314 + [0.001, 0.002, 0.003]
+        ))
+        quizx.full_simp(graph)
+        output = quizx.extract_circuit(graph)
+        assert output.qubits == 1
+        return output.to_matrix(), len(output.gates)
     if tool == "tket":
         from pytket.passes import FullPeepholeOptimise
         from pytket.qasm import circuit_from_qasm_str
@@ -256,6 +308,30 @@ def optimize(tool, source):
         assert all(abs(p - a) <= 1e-15 * a for p, a in zip(params, literals))
         FullPeepholeOptimise().apply(circuit)
         return circuit.get_unitary(), circuit.n_gates
+    if tool == "bqskit":
+        from bqskit.compiler import Compiler
+        from bqskit.ir.lang.qasm2 import OPENQASM2Language
+        from bqskit.passes import (
+            ForEachBlockPass,
+            QuickPartitioner,
+            ScanningGateRemovalPass,
+            UnfoldPass,
+        )
+
+        circuit = OPENQASM2Language().decode(source)
+        # Check that import preserves every angle before optimization.
+        angles = [op.params for op in circuit if op.gate.name == "RZGate"]
+        assert angles == [[0.00028]] * 11220
+        with Compiler(num_workers=1) as compiler:
+            output = compiler.compile(
+                circuit,
+                [
+                    QuickPartitioner(3),
+                    ForEachBlockPass(ScanningGateRemovalPass()),
+                    UnfoldPass(),
+                ],
+            )
+        return output.get_unitary(), output.num_operations
     if tool == "qrisp":
         import numpy as np
         from qrisp import QuantumCircuit, QuantumVariable
