@@ -25,6 +25,19 @@ Run the slower small-angle examples with the pinned dependencies:
 uv run slowbugs.py
 ```
 
+The [individual_scripts](individual_scripts/) folder has one short script for each tool.
+Each script reads the OpenQASM inputs of that tool's examples, runs the tool, and prints the output circuit.
+These scripts do not calculate probabilities. For example:
+
+```sh
+uv run individual_scripts/qrisp_bugs.py
+```
+
+Most scripts print OpenQASM 2. Some tools use other formats.
+The qBraid script prints IonQ JSON, the CUDA-Q script prints compiled QIR, and the quilc script prints Quil.
+The MQT Core 4 script prints MLIR and OpenQASM 2. The BQSKit script prints raw unitary blocks as matrices.
+The quilc script needs Docker.
+
 ## How bad are the bugs?
 
 For each example, prepare every qubit in `|+>`, apply the circuit, and measure `q[0]` in the X basis.
