@@ -25,8 +25,6 @@ Run the slower small-angle examples with the pinned dependencies:
 uv run moarbugs.py
 ```
 
-The Cirq and Qrisp small-angle examples take several minutes each.
-
 ## How bad are the bugs?
 
 For each example, prepare every qubit in `|+>`, apply the circuit, and measure `q[0]` in the X basis.
