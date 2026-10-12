@@ -15,6 +15,7 @@
 import math
 import re
 import sys
+from numbers import Integral
 
 import mpmath as mp
 
@@ -73,9 +74,9 @@ def examples():
         "bqskit": (
             HEADER
             + "qreg q[4];\n"
-            + "rz(0.00028) q[0];\ncx q[0],q[1];\ncx q[0],q[2];\ncx q[0],q[3];\n" * 11220,
-            "11220 x (rz(0.00028) q[0]; cx q[0],q[1]; cx q[0],q[2]; cx q[0],q[3])",
-            "rz(3.1416) on q[0], almost Z",
+            + "rz(pi/36) q[0];\ncx q[0],q[1];\ncx q[0],q[2];\ncx q[0],q[3];\n" * 36,
+            "36 x (rz(pi/36) q[0]; cx q[0],q[1]; cx q[0],q[2]; cx q[0],q[3])",
+            "rz(pi) on q[0], equivalent to Z",
         ),
         "qrisp": (
             HEADER + "qreg q[1];\n" + "u3(0.00007,0,0) q[0];\n" * 44880,
@@ -94,7 +95,7 @@ def examples():
 
 
 def matrix(name, angles):
-    """Exact 100-digit matrix of a qelib1.inc gate. The first operand is the MSB."""
+    """100-digit matrix of a qelib1.inc gate. The first operand is the MSB."""
     i = mp.mpc(0, 1)
     one, zero = mp.mpf(1), mp.mpf(0)
 
@@ -149,7 +150,7 @@ def matrix(name, angles):
 
 
 def exact(value):
-    """Exact 100-digit value of a binary64 float, an integer, or a Fraction."""
+    """100-digit value of a binary64 float, an integer, or a Fraction."""
     from fractions import Fraction
 
     value = Fraction(value)
@@ -157,22 +158,35 @@ def exact(value):
 
 
 def simulate(qubits, gates):
-    """Exact 100-digit state-vector simulation. Return P(+1) of X on q[0].
+    """100-digit state-vector simulation. Return P(+1) of X on q[0].
 
     Every qubit starts in |+>. Each gate is (name, angles, wires) for a gate in
     `matrix`, or ("unitary", rows, wires) for a raw matrix. The first wire is the MSB.
     """
+    if isinstance(qubits, bool) or not isinstance(qubits, int) or qubits < 1:
+        raise ValueError("Expected a positive integer qubit count")
     state = [mp.mpc(1) / mp.sqrt(2**qubits)] * (1 << qubits)  # |+...+>
     cache = {}
     for name, angles, wires in gates:
         if name == "unitary":
             arity, m = len(wires), angles
+            dimension = 1 << arity
+            if len(m) != dimension or any(len(row) != dimension for row in m):
+                raise ValueError("Wrong unitary dimensions")
+            unitary = mp.matrix(m)
+            if any(not mp.isfinite(z) for z in unitary):
+                raise ValueError("Nonfinite unitary")
+            if mp.norm(unitary.H * unitary - mp.eye(dimension)) > mp.mpf("1e-12"):
+                raise ValueError("Raw matrix is not unitary")
         else:
             key = (name, tuple(angles))
             if key not in cache:
                 cache[key] = matrix(name, list(angles))
             arity, m = cache[key]
-        if len(wires) != arity or len(set(wires)) != arity or max(wires) >= qubits:
+        if (
+            not wires or len(wires) != arity or len(set(wires)) != arity
+            or any(isinstance(w, bool) or not isinstance(w, Integral) or not 0 <= w < qubits for w in wires)
+        ):
             raise ValueError(f"Wrong gate wires: {name} {wires}")
         shifts = [qubits - 1 - w for w in wires]
         new = list(state)
@@ -187,6 +201,9 @@ def simulate(qubits, gates):
                 new[out] = sum(m[r][c] * state[g] for c, g in enumerate(group))
         state = new
     half = len(state) // 2
+    norm = sum(abs(amplitude) ** 2 for amplitude in state)
+    if not mp.isfinite(norm) or abs(norm - 1) > mp.mpf("1e-10"):
+        raise ValueError("Reference state is not normalized")
     return sum(abs(state[k] + state[k + half]) ** 2 for k in range(half)) / 2
 
 
@@ -195,7 +212,7 @@ def qubit_count(source):
 
 
 def ideal_probability(source):
-    """Exact 100-digit reference for simple OpenQASM 2.
+    """100-digit reference for simple OpenQASM 2.
 
     The reference supports only the gates in `matrix` on a register named q.
     It rejects any other statement instead of guessing.
@@ -257,23 +274,45 @@ def float_inputs(source):
 
 
 def output_probability(output):
-    # Prepare every qubit in |+>; measure X on the most significant qubit.
-    # The output is a unitary, or the output state for the |+> input.
+    """P(+1) of X on the MSB; reject invalid matrices and states."""
+    import numpy as np
+
+    output = np.asarray(output, dtype=np.complex128)
+    if output.ndim not in (1, 2):
+        raise ValueError("Expected a state vector or square unitary matrix")
     dimension = len(output)
-    if getattr(output, "ndim", 2) == 1:
+    if dimension < 2 or dimension & (dimension - 1):
+        raise ValueError("Output dimension must be a positive power of two with a qubit")
+    if not np.all(np.isfinite(output)):
+        raise ValueError("Nonfinite output")
+    # Qrisp returns complex64 matrices. Allow its rounding, but never silently
+    # normalize an invalid result into a measurement probability.
+    tolerance = 1e-6
+    if output.ndim == 1:
         state = output
     else:
-        state = [
-            sum(output[i, j] for j in range(dimension)) / math.sqrt(dimension)
-            for i in range(dimension)
-        ]
+        if output.shape != (dimension, dimension):
+            raise ValueError("Output matrix is not square")
+        if not np.allclose(output.conj().T @ output, np.eye(dimension), atol=tolerance, rtol=0):
+            raise ValueError("Output matrix is not unitary")
+        state = output @ np.full(dimension, 1 / math.sqrt(dimension))
+    if abs(float(np.vdot(state, state).real) - 1) > tolerance:
+        raise ValueError("Output state is not normalized")
     half = dimension // 2
-    probability = float(
-        sum(abs(state[i] + state[i + half]) ** 2 for i in range(half)) / 2
-    )
-    if not math.isfinite(probability):
-        raise ValueError("Nonfinite output probability")
-    return probability
+    probability = float(np.sum(np.abs(state[:half] + state[half:]) ** 2) / 2)
+    if not math.isfinite(probability) or not -tolerance <= probability <= 1 + tolerance:
+        raise ValueError("Invalid output probability")
+    return min(1.0, max(0.0, probability))
+
+
+def validate_checks(ideal, rounded, actual, simulated):
+    """Require the independent calculations to agree before declaring a bug."""
+    if any(not mp.isfinite(p) or not 0 <= p <= 1 + mp.mpf("1e-10") for p in (ideal, rounded, actual, simulated)):
+        raise ValueError("Invalid measurement probability in verification")
+    if abs(ideal - rounded) > mp.mpf("1e-16"):
+        raise ValueError("Binary64 input rounding changes the expected probability")
+    if abs(actual - simulated) > mp.mpf("1e-6"):
+        raise ValueError("Native output and independent output-gate simulation disagree")
 
 
 def qiskit_load(source):
@@ -377,14 +416,21 @@ def bqskit_gates(circuit):
     for op in circuit:
         wires = list(op.location)
         if op.gate.name.startswith("VariableUnitaryGate"):
-            # Real parts, then imaginary parts, row by row. BQSKit's own matrix
-            # moves this to the closest unitary. The check uses it unchanged.
+            # Parameters store real parts, then imaginary parts, row by row.
             size = 2 ** len(wires)
             values = [exact(a) for a in op.params]
             rows = [
                 [mp.mpc(values[r * size + c], values[size * size + r * size + c]) for c in range(size)]
                 for r in range(size)
             ]
+            # VariableUnitaryGate defines its matrix by polar projection, not
+            # by the raw parameters. Reconstruct that projection independently
+            # at high precision, without calling BQSKit's matrix routines.
+            left, singular_values, right = mp.svd(mp.matrix(rows))
+            if not max(singular_values) or min(singular_values) <= mp.mpf("1e-12") * max(singular_values):
+                raise ValueError("Singular variable matrix has no unique polar projection")
+            projected = left * right
+            rows = [[projected[r, c] for c in range(size)] for r in range(size)]
             gates.append(("unitary", rows, wires))
         else:
             gates.append((names.get(op.gate.name, op.gate.name), [exact(a) for a in op.params], wires))
@@ -402,6 +448,18 @@ def qrisp_gates(circuit):
             [circuit.qubits.index(q) for q in i.qubits],
         ))
     return gates
+
+
+def qrisp_output_after_preparation(circuit):
+    """Remove the explicit input H after compiling the physical |+> preparation."""
+    import numpy as np
+
+    gates = qrisp_gates(circuit)
+    if len(circuit.qubits) != 1 or not gates or gates[0] != ("h", [], [0]):
+        raise ValueError("Qrisp output does not retain the expected input preparation")
+    preparation = np.array([[1, 1], [1, -1]], dtype=np.complex128) / math.sqrt(2)
+    native = np.asarray(circuit.get_unitary(), dtype=np.complex128)
+    return native @ preparation, len(gates) - 1, gates[1:]
 
 
 def ionq_gates(program):
@@ -499,43 +557,35 @@ def optimize(tool, source):
         FullPeepholeOptimise().apply(circuit)
         return circuit.get_unitary(), circuit.n_gates, tket_gates(circuit)
     if tool == "bqskit":
+        from bqskit import compile
         from bqskit.compiler import Compiler
         from bqskit.ir.lang.qasm2 import OPENQASM2Language
-        from bqskit.passes import (
-            ForEachBlockPass,
-            QuickPartitioner,
-            ScanningGateRemovalPass,
-            UnfoldPass,
-        )
 
         circuit = OPENQASM2Language().decode(source)
         # Check that import preserves every angle before optimization.
         angles = [op.params for op in circuit if op.gate.name == "RZGate"]
-        assert angles == [[0.00028]] * 11220
+        assert angles == [[math.pi / 36]] * 36
+        # synthesis_epsilon is documented as the maximum distance between the
+        # target and the circuit unitary.
         with Compiler(num_workers=1) as compiler:
-            output = compiler.compile(
-                circuit,
-                [
-                    QuickPartitioner(3),
-                    ForEachBlockPass(ScanningGateRemovalPass()),
-                    UnfoldPass(),
-                ],
+            output, initial, final = compile(
+                circuit, optimization_level=2, synthesis_epsilon=1e-3,
+                seed=1, compiler=compiler, with_mapping=True,
             )
+        assert list(initial) == list(final) == [0, 1, 2, 3]  # no qubit permutation
         return output.get_unitary(), output.num_operations, bqskit_gates(output)
     if tool == "qrisp":
-        import numpy as np
-        from qrisp import QuantumCircuit, QuantumVariable
+        from qrisp import QuantumCircuit, QuantumVariable, h
 
         circuit = QuantumCircuit.from_qasm_str(source)
         # Check that import preserves all gates and angles before compiling.
         assert len(circuit.data) == 44880
         assert all(i.op.name == "u3" and list(i.op.params) == [7e-5, 0, 0] for i in circuit.data)
         variable = QuantumVariable(1)
+        h(variable)  # make the |+> input explicit to the session compiler
         variable.qs.append(circuit.to_gate(), [variable[0]])
         output = variable.qs.compile()
-        gates = [i for i in output.data if i.op.name != "qb_alloc"]
-        # The compiled unitary is complex64; widen it before computing probabilities.
-        return np.asarray(output.get_unitary(), dtype=np.complex128), len(gates), qrisp_gates(output)
+        return qrisp_output_after_preparation(output)
     if tool == "qbraid":
         import warnings
 
@@ -573,7 +623,11 @@ def main():
     print("Prepare every qubit in |+>; measure X on q[0]. Compare P(+1).")
     reproduced_all = True
     selected = sys.argv[1:]
-    for tool, (source, description, expected) in examples().items():
+    fixtures = examples()
+    unknown = set(selected) - fixtures.keys()
+    if unknown:
+        raise SystemExit(f"Unknown tool(s): {', '.join(sorted(unknown))}")
+    for tool, (source, description, expected) in fixtures.items():
         if selected and tool not in selected:
             continue
         print(f"\n{tool}\n  Input:    {description}", flush=True)
@@ -589,6 +643,7 @@ def main():
         # binary64 angles that the tool gets.
         simulated = simulate(qubit_count(source), gates)
         rounded = ideal_probability(float_inputs(source))
+        validate_checks(ideal, rounded, actual, simulated)
         error = float(100 * abs(ideal - actual))
         checks = [abs(ideal - simulated), abs(rounded - simulated)]
         reproduced = error > 99 and all(float(100 * e) > 99 for e in checks)

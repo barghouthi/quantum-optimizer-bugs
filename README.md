@@ -193,6 +193,10 @@ Qrisp has no 0.9.9 tag. This link uses the commit that sets the version to 0.9.9
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
+The script prepares `|+>` with an `h` gate in the Qrisp session.
+Thus the compiler cannot use the fact that a new qubit starts in `|0>`.
+The script removes this H from the output before the comparison.
+
 ### qBraid: 100 pp
 
 ```text
@@ -332,19 +336,30 @@ MQT QMAP 3.10.0 requires MQT Core 3.10, so `bugs.py` runs this example in a sepa
 
 For each example, the script prints the output gates and does three checks:
 
-1. **Expected probability.** The script calculates the expected probability from the QASM input with exact arithmetic and 100-digit precision.
+1. **Expected probability.** The script calculates the expected probability from the QASM input.
+   It uses symbolic phase arithmetic and 100-digit numerical evaluation.
    It does not use the tool under test for this calculation, and it rejects unsupported gates.
 2. **Floating-point input angles.** Most angles, such as `pi` or `0.01`, do not have an exact 64-bit floating-point value.
    The script calculates each input angle in 64-bit floating-point arithmetic, as Qiskit's QASM parser does.
    Then it calculates the expected probability again with these angles.
    The result changes by less than 10⁻¹⁴ pp. Thus, input rounding does not cause the errors.
    Some tools keep angles in other forms. For example, tket uses half-turns, and PyZX and QuiZX use fractions of π.
-   Before optimization, the script checks that each import keeps the input angles, exactly or within a small bound.
-3. **Output gates.** The script reads the gates of the tool's output circuit. It simulates these gates with the same exact reference.
+   Before optimization, the script checks the imported angles, exactly or within a small bound.
+   For Qiskit, PennyLane, Cirq, tket, and MQT QMAP, it also simulates the imported circuit.
+   The result must agree with the expected probability.
+3. **Output gates.** The script reads the gates of the tool's output circuit. It simulates these gates with the same 100-digit reference.
    This check does not use the tool's own matrix code.
    For CUDA-Q, the script reads the gates from the compiled QIR.
 
+The script stops with an error if the tool's own result and the output-gate simulation do not agree.
+It also stops if input rounding changes the expected probability by more than 10⁻¹⁴ pp, or if a matrix or state is not valid.
 An example reproduces only if the error is more than 99 pp for the tool's own result and for both checks.
+
+Run the regression tests for these checks with the same pinned dependencies:
+
+```sh
+uv run --locked bugs.py --test-harness
+```
 
 ## What's the solution?
 

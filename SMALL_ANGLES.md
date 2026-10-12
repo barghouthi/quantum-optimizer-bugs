@@ -28,13 +28,13 @@ Compare the expected probability of the **+1** outcome with the output probabili
 | PyZX 0.9.0 | 0.01 | 163 | 0.010812% | 99.999984% | **99.989172 pp** | Phase teleportation loses the sign of a fused phase |
 | QuiZX 0.3.0 | 0.01 | 317 | 0.000486% | 99.402667% | **99.402182 pp** | Integer overflow during phase addition |
 | tket 2.18.5 | 6.1×10⁻¹⁰ | 47 | ≈0% | 99.836003% | **99.836003 pp** | Shortcut divides two values near zero |
-| BQSKit 1.2.1 | 2.8×10⁻⁴ | 44,880 | ≈0% | 100% | **≈100 pp** | Gate removal compares a distance threshold with a cost |
+| BQSKit 1.2.1 | 8.7×10⁻² | 144 | 0% | 100% | **100 pp** | `compile` uses a documented distance as a cost threshold |
 | Qrisp 0.9.9 | 7×10⁻⁵ | 44,880 | ≈0% | 100% | **≈100 pp** | Two small rotations are cancelled as inverses |
 | qBraid 0.12.1 | 7.7×10⁻³ | 500 | 0% | ≈100% | **≈100 pp** | `a/b*pi` changes to `a/(b*pi)` |
 
 All input angles are in radians.
 The script checks that each tool's import preserves every input angle before optimization.
-[slowbugs.py](slowbugs.py) calculates each expected probability with an exact state-vector simulation at 100-digit precision.
+[slowbugs.py](slowbugs.py) calculates each expected probability with a state-vector simulation at 100-digit precision.
 This reference does not use the tool under test, and it rejects unsupported gates.
 The script also does the two checks in [README.md](README.md#how-the-results-are-checked).
 It calculates the expected probability again with input angles calculated in 64-bit floating-point arithmetic.
@@ -213,30 +213,36 @@ and [the tolerance](https://github.com/CQCL/tket/blob/v2.18.5/tket/include/tket/
 
 **Measurement:** the +1 probability changes from **almost 0% to 99.836003%**.
 
-### BQSKit: approximately 100 pp
+### BQSKit: 100 pp
 
 ```text
-(rz(0.00028) q[0]; cx q[0],q[1]; cx q[0],q[2]; cx q[0],q[3])   (11,220 times)
+(rz(pi/36) q[0]; cx q[0],q[1]; cx q[0],q[2]; cx q[0],q[3])   (36 times)
 ```
 
-For the `|+>` input, the `cx` gates have no effect. The rotations add up to approximately π.
+For the `|+>` input, the `cx` gates have no effect. The rotations add up to exactly π.
 
-**Expected:** `rz(3.1416)` on `q[0]`, almost Z.
+**Expected:** `rz(pi)` on `q[0]`, equivalent to Z.
 
-**Output:** the 33,660 `cx` gates and no rotations,
-after `QuickPartitioner(3)`, `ForEachBlockPass(ScanningGateRemovalPass())`, and `UnfoldPass()` with default settings.
+**Output:** the 108 `cx` gates and no rotations,
+after `bqskit.compile` with `optimization_level=2` and `synthesis_epsilon=1e-3`.
 
-**Cause:** the gate-removal pass compares a distance threshold with a cost.
-The pass removes a gate from a block if the cost of the result is less than 10⁻⁸.
-For a small rotation by θ, this cost is approximately θ²/8. For `rz(0.00028)`, it is 9.8×10⁻⁹.
-Thus each block loses its rotation.
-BQSKit's own distance for this change is 1.4×10⁻⁴, approximately 14,000 times the threshold.
-BQSKit's `compile` function documents the same default threshold as a maximum distance.
-The 11,220 blocks each lose one rotation, and together they lose approximately π.
-See [the removal check](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/scan.py#L131)
-and [the threshold documentation](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/compiler/compile.py#L259-L261).
+**Cause:** `compile` uses a distance limit as a cost limit.
+Its documentation says that `synthesis_epsilon` is the maximum distance between the target and the circuit unitary.
+At optimization level 2, `compile` divides the circuit into 3-qubit blocks.
+It gives `synthesis_epsilon` to `ScanningGateRemovalPass` as `success_threshold`.
+This pass compares `success_threshold` with a Hilbert–Schmidt cost, not with a distance.
+For a small rotation by θ, this cost is approximately θ²/8. For `rz(pi/36)`, it is 9.5×10⁻⁴, less than 10⁻³.
+Thus the pass removes the rotation from each block.
+BQSKit's own distance for this change is 0.044, approximately 44 times the documented maximum.
+The 36 blocks together lose π.
+With the default `synthesis_epsilon=1e-8`, the pass removes rotations up to 2.8×10⁻⁴.
+Then the distance is approximately 14,000 times the documented maximum.
+See [the `synthesis_epsilon` documentation](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/compiler/compile.py#L259-L261),
+[the gate-deletion workflow](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/compiler/compile.py#L1344-L1368),
+[the threshold documentation](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/scan.py#L41-L44),
+and [the removal check](https://github.com/BQSKit/bqskit/blob/1.2.1/bqskit/passes/processing/scan.py#L131).
 
-**Measurement:** the +1 probability changes from **almost 0% to 100%**.
+**Measurement:** the +1 probability changes from **0% to 100%**.
 
 ### Qrisp: approximately 100 pp
 
@@ -259,6 +265,10 @@ See [the inverse check](https://github.com/eclipse-qrisp/Qrisp/blob/c30b323ad935
 Qrisp has no 0.9.9 tag. This link uses the commit that sets the version to 0.9.9.
 
 **Measurement:** the +1 probability changes from **almost 0% to 100%**.
+
+The script prepares `|+>` with an `h` gate in the Qrisp session.
+Thus the compiler cannot use the fact that a new qubit starts in `|0>`.
+The script removes this H from the output before the comparison.
 
 ### qBraid: approximately 100 pp
 
