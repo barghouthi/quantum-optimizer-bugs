@@ -6,18 +6,18 @@
 > [!WARNING]
 > **All popular quantum computing SDKs and optimization tools we have tested do not correctly handle angles, resulting in unsound optimization of quantum circuits.**
 
-Across several quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
+Across many quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
 This repository provides eleven OpenQASM examples that reproduce these errors.
 It also provides one additional MQT Core 4 example.
 Each example shows an almost completely flipped measurement outcome.
 
-Run all examples with the pinned dependencies:
+Run buggy examples with the pinned dependencies:
 
 ```sh
 uv run bugs.py
 ```
 
-The quilc example needs Docker. Without Docker, the script skips it.
+The rest of the page describes these bugs.
 
 > [!NOTE]
 > **Small-angle bugs:** [SMALL_ANGLES.md](SMALL_ANGLES.md) shows more examples that use only small angles.
