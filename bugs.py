@@ -61,8 +61,8 @@ def examples():
             "rz(~pi)",
         ),
         "tket": (
-            HEADER + "qreg q[1];\n" + rotations,
-            "rz(1e16*pi); rz(pi); rz(-1e16*pi)",
+            HEADER + "qreg q[1];\nrz(pi) q[0];\nrz(-10000000000000000*pi) q[0];\n",
+            "rz(pi); rz(-1e16*pi)",
             "Z",
         ),
         "bqskit": (
@@ -326,11 +326,19 @@ def float_inputs(source):
     return re.sub(r"\(([^()]*)\) (?=q\[)", replace, source)
 
 
+IMPORTS_VERIFIED = set()  # sources whose imported circuit the current tool verified
+
+
 def validate_import(source, gates):
-    """Check the imported circuit's measurement before blaming optimization."""
+    """Check the imported circuit's measurement before blaming optimization.
+
+    This simulates the angles that the tool actually stores, so it replaces the
+    generic binary64 rounding check for this example.
+    """
     imported = simulate(qubit_count(source), gates)
     if abs(imported - ideal_probability(source)) > mp.mpf("1e-6"):
         raise ValueError("Imported circuit does not preserve the expected input probability")
+    IMPORTS_VERIFIED.add(source)
 
 
 def output_probability(output):
@@ -366,10 +374,14 @@ def output_probability(output):
 
 
 def validate_checks(ideal, rounded, actual, simulated):
-    """Require the independent calculations to agree before declaring a bug."""
-    if any(not mp.isfinite(p) or not 0 <= p <= 1 + mp.mpf("1e-10") for p in (ideal, rounded, actual, simulated)):
+    """Require the independent calculations to agree before declaring a bug.
+
+    `rounded` is None when the tool's own imported circuit was verified instead.
+    """
+    values = [p for p in (ideal, rounded, actual, simulated) if p is not None]
+    if any(not mp.isfinite(p) or not 0 <= p <= 1 + mp.mpf("1e-10") for p in values):
         raise ValueError("Invalid measurement probability in verification")
-    if abs(ideal - rounded) > mp.mpf("1e-16"):
+    if rounded is not None and abs(ideal - rounded) > mp.mpf("1e-16"):
         raise ValueError("Binary64 input rounding changes the expected probability")
     if abs(actual - simulated) > mp.mpf("1e-6"):
         raise ValueError("Native output and independent output-gate simulation disagree")
@@ -633,13 +645,12 @@ def optimize(tool, source):
     CUDA-Q returns its output state and no gate count.
     """
     if tool == "qiskit":
+        from qiskit import transpile
         from qiskit.quantum_info import Operator
-        from qiskit.transpiler import PassManager
-        from qiskit.transpiler.passes import CommutativeCancellation
 
         circuit = qiskit_load(source)
         validate_import(source, qiskit_gates(circuit))
-        output = PassManager([CommutativeCancellation(basis_gates=["rz"])]).run(circuit)
+        output = transpile(circuit)  # default settings: optimization level 2
         return Operator(output).data, len(output.data), qiskit_gates(output)
     if tool == "pennylane":
         import pennylane as qml
@@ -1095,6 +1106,7 @@ def main():
         if selected and tool not in selected:
             continue
         print(f"\n{tool}\n  Input:    {description}", flush=True)
+        IMPORTS_VERIFIED.clear()
         try:
             unitary, count, gates = optimize(tool, source)
         except Skipped as reason:
@@ -1108,13 +1120,14 @@ def main():
             f"  Measure X: expected {float(100 * ideal):.6f}% -> output {100 * actual:.6f}%"
         )
         # Two independent checks. The reference simulates the output gates without
-        # the tool's matrix code. The expected value also holds for the exact
-        # binary64 angles that the tool gets.
+        # the tool's matrix code. The expected value also holds for the binary64
+        # angles that a QASM parser computes. If optimize() verified the tool's own
+        # imported circuit, that stronger check replaces the binary64 check.
         simulated = simulate(qubit_count(source), gates)
-        rounded = ideal_probability(float_inputs(source))
+        rounded = None if source in IMPORTS_VERIFIED else ideal_probability(float_inputs(source))
         validate_checks(ideal, rounded, actual, simulated)
         error = float(100 * abs(ideal - actual))
-        checks = [abs(ideal - simulated), abs(rounded - simulated)]
+        checks = [abs(ideal - simulated)] + ([] if rounded is None else [abs(rounded - simulated)])
         reproduced = error > 99 and all(float(100 * e) > 99 for e in checks)
         reproduced_all &= reproduced
         print(f"  Error:    {error:.6f} percentage points")

@@ -65,13 +65,16 @@ rz(1e17); rz(pi); rz(-1e17)
 
 **Expected:** rz(pi), equivalent to Z.
 
-**Output:** identity after `CommutativeCancellation(basis_gates=["rz"])`.
+**Output:** identity after `transpile()` with default settings.
 
 **Cause:** floating-point addition loses the middle rotation.
 Both large angles are exact 64-bit floating-point values.
 QASM import preserves the middle rotation.
-The pass rounds `1e17 + pi` back to `1e17`.
+The default optimization level 2 runs `CommutativeCancellation`.
+This pass rounds `1e17 + pi` back to `1e17`.
 It then adds `-1e17` and gets zero.
+Optimization level 1 does not run this pass and gives the correct result.
+See [the angle sum](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/transpiler/src/passes/commutation_cancellation.rs#L236-L276).
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
@@ -135,17 +138,20 @@ The error is approximately **100 pp**.
 ### tket: 100 pp
 
 ```text
-rz(1e16*pi); rz(pi); rz(-1e16*pi)
+rz(pi); rz(-1e16*pi)
 ```
 
 **Expected:** rz(pi), equivalent to Z.
 
 **Output:** identity after `RemoveRedundancies`.
 
-**Cause:** floating-point addition loses the middle rotation.
-tket stores these angles in half-turns: `1e16`, `1`, and `-1e16`.
-Adding `1e16 + 1` rounds back to `1e16`. Adding `-1e16` then gives zero.
-QASM import preserves that rotation.
+**Cause:** floating-point addition loses the first rotation.
+tket stores these angles in half-turns: `1` and `-1e16`.
+The pass adds the two angles. `1 + (-1e16)` rounds to `-1e16`.
+A rotation by `-1e16` half-turns is identity, so the pass removes it.
+QASM import preserves both angles.
+`rz(-1e16*pi)` alone is identity, and the pass removes it correctly.
+See [the angle sum](https://github.com/CQCL/tket/blob/v2.18.5/tket/src/Transformations/RedundancyRemoval.cpp#L168-L171).
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
@@ -347,6 +353,8 @@ For each example, the script prints the output gates and does three checks:
    Before optimization, the script checks the imported angles, exactly or within a small bound.
    For Qiskit, PennyLane, Cirq, tket, and MQT QMAP, it also simulates the imported circuit.
    The result must agree with the expected probability.
+   This check uses the angles that the tool keeps, so it replaces the floating-point check for these tools.
+   For example, tket keeps `-1e16*pi` exactly as `-1e16` half-turns, but the nearest 64-bit float is off by 0.38 radians.
 3. **Output gates.** The script reads the gates of the tool's output circuit. It simulates these gates with the same 100-digit reference.
    This check does not use the tool's own matrix code.
    For CUDA-Q, the script reads the gates from the compiled QIR.
