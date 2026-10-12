@@ -29,6 +29,7 @@ The rest of the page describes these bugs.
 For each example, prepare every qubit in `|+>`.
 Apply the circuit. Then measure `q[0]` in the X basis.
 Compare the expected probability of the **+1** outcome with the output probability.
+In all examples below, the probability of measuring 1 effectively flips from 0% to 100%!
 
 The error is the absolute probability difference, in **percentage points (pp)**:
 
