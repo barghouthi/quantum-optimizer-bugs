@@ -774,10 +774,6 @@ def main():
         # binary64 angles that the tool gets.
         simulated = simulate(qubit_count(source), gates)
         rounded = ideal_probability(float_inputs(source))
-        print(
-            f"  Checks:   output gates in the reference {float(100 * simulated):.6f}%; "
-            f"expected with float angles {float(100 * rounded):.6f}%"
-        )
         error = float(100 * abs(ideal - actual))
         checks = [abs(ideal - simulated), abs(rounded - simulated)]
         reproduced = error > 99 and all(float(100 * e) > 99 for e in checks)

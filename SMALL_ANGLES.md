@@ -37,7 +37,7 @@ The script checks that each tool's import preserves every input angle before opt
 [slowbugs.py](slowbugs.py) calculates each expected probability with an exact state-vector simulation at 100-digit precision.
 This reference does not use the tool under test, and it rejects unsupported gates.
 The script also does the two checks in [README.md](README.md#how-the-results-are-checked).
-It calculates the expected probability again with the exact 64-bit floating-point angles.
+It calculates the expected probability again with the rounded 64-bit floating-point angles that each tool gets.
 It also simulates the tool's output gates with the same reference.
 
 ## Input and output for each tool
