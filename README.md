@@ -22,7 +22,7 @@ uv run bugs.py
 Run the slower small-angle examples with the pinned dependencies:
 
 ```sh
-uv run moarbugs.py
+uv run slowbugs.py
 ```
 
 ## How bad are the bugs?

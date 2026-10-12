@@ -8,10 +8,10 @@ Many small errors then add up to an almost completely flipped measurement outcom
 Run all small-angle examples with the pinned dependencies:
 
 ```sh
-uv run moarbugs.py
+uv run slowbugs.py
 ```
 
-Run one or more examples by tool name, for example `uv run moarbugs.py tket qiskit`.
+Run one or more examples by tool name, for example `uv run slowbugs.py tket qiskit`.
 The Cirq and Qrisp examples take several minutes each.
 
 ## How bad are the outputs?
@@ -31,7 +31,7 @@ Compare the expected probability of the **+1** outcome with the output probabili
 
 All input angles are in radians.
 The script checks that each tool's import preserves every input angle before optimization.
-[moarbugs.py](moarbugs.py) calculates each expected probability with an exact state-vector simulation at 100-digit precision.
+[slowbugs.py](slowbugs.py) calculates each expected probability with an exact state-vector simulation at 100-digit precision.
 This reference does not use the tool under test, and it rejects unsupported gates.
 
 ## Input and output for each tool
