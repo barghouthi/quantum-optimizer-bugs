@@ -334,10 +334,12 @@ For each example, the script prints the output gates and does three checks:
 
 1. **Expected probability.** The script calculates the expected probability from the QASM input with exact arithmetic and 100-digit precision.
    It does not use the tool under test for this calculation, and it rejects unsupported gates.
-2. **Rounded input angles.** Most angles, such as `pi` or `0.01`, do not have an exact 64-bit floating-point value.
-   Each tool gets the nearest floating-point value instead.
-   The script calculates the expected probability again with these rounded angles.
+2. **Floating-point input angles.** Most angles, such as `pi` or `0.01`, do not have an exact 64-bit floating-point value.
+   The script calculates each input angle in 64-bit floating-point arithmetic, as Qiskit's QASM parser does.
+   Then it calculates the expected probability again with these angles.
    The result changes by less than 10⁻¹⁴ pp. Thus, input rounding does not cause the errors.
+   Some tools keep angles in other forms. For example, tket uses half-turns, and PyZX and QuiZX use fractions of π.
+   Before optimization, the script checks that each import keeps the input angles, exactly or within a small bound.
 3. **Output gates.** The script reads the gates of the tool's output circuit. It simulates these gates with the same exact reference.
    This check does not use the tool's own matrix code.
    For CUDA-Q, the script reads the gates from the compiled QIR.
