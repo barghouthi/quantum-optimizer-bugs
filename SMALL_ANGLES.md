@@ -1,0 +1,186 @@
+# Small-angle bugs
+
+The examples in [README.md](README.md) mostly use very large angles.
+The examples on this page use only small angles.
+Each tool removes or changes small rotations because of a tolerance check.
+Many small errors then add up to an almost completely flipped measurement outcome.
+
+Run all small-angle examples with the pinned dependencies:
+
+```sh
+uv run moarbugs.py
+```
+
+Run one or more examples by tool name, for example `uv run moarbugs.py tket qiskit`.
+The Cirq and Qrisp examples take several minutes each.
+
+## How bad are the outputs?
+
+The protocol is the same as in [README.md](README.md#how-bad-are-the-outputs).
+Prepare every qubit in `|+>`. Apply the circuit. Then measure `q[0]` in the X basis.
+Compare the expected probability of the **+1** outcome with the output probability.
+
+| Tool / tested version | Largest input angle | Input gates | Expected +1 probability | Output +1 probability | Error | Cause |
+|---|---:|---:|---:|---:|---:|---|
+| Qiskit 2.5.1 | 1.4×10⁻⁴ | 44,432 | 0% | 100% | **100 pp** | Two-qubit synthesis treats near-identity gates as identity |
+| PennyLane 0.45.1 | 9.0×10⁻³ | 353 | 0% | 100% | **100 pp** | Tolerance is 400 times larger than intended |
+| Cirq 1.7.0 | 1×10⁻⁵ | 300,003 | 0.500375% | 100% | **99.499625 pp** | Commutation check with a relative tolerance |
+| tket 2.18.5 | 6.1×10⁻¹⁰ | 47 | ≈0% | 99.836003% | **99.836003 pp** | Shortcut divides two values near zero |
+| Qrisp 0.9.9 | 7×10⁻⁵ | 44,880 | ≈0% | 100% | **≈100 pp** | Two small rotations are cancelled as inverses |
+
+All input angles are in radians.
+The script checks that each tool's import preserves every input angle before optimization.
+[moarbugs.py](moarbugs.py) calculates each expected probability with an exact state-vector simulation at 100-digit precision.
+This reference does not use the tool under test, and it rejects unsupported gates.
+
+## Input and output for each tool
+
+The input gates below execute from left to right.
+Gate comparisons ignore global phase, which does not affect measurement probabilities.
+
+### Qiskit: 100 pp
+
+```text
+h q[1]; h q[2]
+crz(2*pi/44430) q[0],q[1]; crz(2*pi/44430) q[0],q[2]; ...   (44,430 crz gates)
+```
+
+Each `crz` angle is approximately 1.4×10⁻⁴.
+The `h` gates put both targets in `|0>` for the `|+>` input.
+Thus each `crz` applies a small phase to `q[0]`. The 44,430 phases add up to π.
+
+**Expected:** Z on `q[0]`.
+
+**Output:** two single-qubit gates on `q[1]` and `q[2]`, and no gate on `q[0]`,
+after `transpile(circuit, basis_gates=["cx", "u"])` with default settings.
+
+**Cause:** two-qubit synthesis treats each `crz` as identity.
+The default transpiler resynthesizes each two-qubit block with exact synthesis.
+But the Weyl decomposition still uses a fidelity of 1 − 10⁻⁹ to classify the block.
+Each `crz` is within this fidelity of identity, so the synthesis emits no CNOT and loses the phase.
+The alternating targets prevent Qiskit from merging the `crz` gates first.
+See [the default fidelity](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/common.rs#L25),
+[its use in exact synthesis](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/basis_decomposer.rs#L651-L657),
+and [the identity check](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/weyl_decomposition.rs#L646-L668).
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+### PennyLane: 100 pp
+
+```text
+h q[1]; x q[1]
+cu1(pi/351) q[0],q[1]   (351 times)
+```
+
+The target `q[1]` is in `|1>`, so the 351 phases on `q[0]` add up to π.
+
+**Expected:** Z on `q[0]`.
+
+**Output:** 2,108 gates and no CNOT after `qml.transforms.unitary_to_rot`.
+All rotation angles in the output are 0.
+`qml.compile` and `qml.transforms.decompose` give the same result.
+
+**Cause:** a tolerance check is 400 times larger than intended.
+The decomposition counts the CNOTs that a two-qubit unitary needs.
+It selects zero CNOTs if the trace is close to 4, with `allclose(trace, 4, atol=1e-7)`.
+The comment says that a tolerance of approximately 10⁻⁷ is intended.
+But the default relative tolerance of 10⁻⁵ also applies, so the real tolerance is approximately 4×10⁻⁵.
+Each `cu1(pi/351)` passes this check. The zero-CNOT decomposition then loses its phase.
+See [the CNOT count](https://github.com/PennyLaneAI/pennylane/blob/v0.45.1/pennylane/ops/op_math/decompositions/unitary_decompositions.py#L518-L521).
+
+**Measurement:** the +1 probability changes from **0% to 100%**.
+
+Qiskit parses the QASM input. The script converts `cu1` to a PennyLane `QubitUnitary`.
+PennyLane's own QASM importer (pennylane-qiskit) does the same conversion.
+That package requires an older Qiskit, so the script does not use it directly.
+
+### Cirq: 99.499625 pp
+
+```text
+h q[1]; cx q[0],q[1]
+rz(1e-5) q[1]   (300,000 times)
+cx q[0],q[1]
+```
+
+For the `|+>` input, the circuit applies `rz(3)` to `q[0]`.
+
+**Expected:** `rz(3)` on `q[0]`. The +1 probability is 0.500375%.
+
+**Output:** the two `cx` gates are next to each other, so they cancel,
+after `cirq.transformers.insertion_sort_transformer`.
+
+**Cause:** the commutation check uses a relative tolerance.
+The transformer moves the last `cx` to the left past each gate that commutes with it.
+Cirq compares the two products with `np.allclose`, which has a default relative tolerance of 10⁻⁵.
+Thus `rz(1e-5)` on the target counts as commuting with `cx`, although it does not.
+Each move loses 10⁻⁵ of phase on `q[0]`. The 300,000 moves lose 3 radians.
+See [the transformer](https://github.com/quantumlib/Cirq/blob/v1.7.0/cirq-core/cirq/transformers/insertion_sort.py#L78)
+and [the commutation check](https://github.com/quantumlib/Cirq/blob/v1.7.0/cirq-core/cirq/ops/raw_types.py#L1144).
+
+**Measurement:** the +1 probability changes from **0.500375% to 100%**.
+
+`optimize_for_target_gateset` uses the same transformer with `reorder_operations=True`.
+
+### tket: 99.836003 pp
+
+```text
+s q[0]
+(rz(6.134e-10) q[0]; rx(1.064e-10) q[0]; ry(6.317e-11) q[0]; z q[0];
+ rx(8.644e-11) q[0]; y q[0]; cx q[0],q[1]; x q[0]; cx q[0],q[1])   (5 times)
+s q[0]
+```
+
+Each block acts almost as identity on `q[0]` and applies X to `q[1]`.
+The `cx` gates keep the single-qubit gates of adjacent blocks apart.
+
+**Expected:** Z on `q[0]`.
+
+**Output:** two `TK1` gates after `FullPeepholeOptimise()`.
+`SynthesiseTket` and `PeepholeOptimise2Q` give the same result.
+
+**Cause:** a shortcut divides two values that are almost zero.
+tket squashes each chain of single-qubit gates into one rotation.
+A shortcut applies when a test value is within 10⁻¹¹ of zero.
+The shortcut calculates an angle from the ratio of two small components, each slightly larger than 10⁻¹¹.
+This angle is approximately 0.61 radians, but it should be almost zero.
+Five blocks add up to approximately π.
+See [the shortcut](https://github.com/CQCL/tket/blob/v2.18.5/tket/src/Gate/Rotation.cpp#L146-L160)
+and [the tolerance](https://github.com/CQCL/tket/blob/v2.18.5/tket/include/tket/Utils/Constants.hpp#L38).
+
+**Measurement:** the +1 probability changes from **almost 0% to 99.836003%**.
+
+### Qrisp: approximately 100 pp
+
+```text
+u3(0.00007,0,0) q[0]   (44,880 times)
+```
+
+Each gate is a Y rotation by 7×10⁻⁵. The rotations add up to 3.1416.
+
+**Expected:** `ry(3.1416)`, almost Y. The +1 probability is approximately 1.3×10⁻¹¹.
+
+**Output:** identity after the default compiler, `QuantumSession.compile()`.
+
+**Cause:** the compiler cancels two small rotations as if they were inverses.
+The gate-fusion pass compares the inverse of one gate with the next gate.
+It removes both gates if their matrices differ by 10⁻⁴ or less.
+`ry(-a)` and `ry(a)` differ by approximately 1.4 × `a`, so each pair of `u3(7e-5,0,0)` gates passes this check.
+Each removed pair loses 1.4×10⁻⁴. All 22,440 pairs lose approximately π.
+See [the inverse check](https://github.com/eclipse-qrisp/Qrisp/blob/c30b323ad93507bd58b25e75a705e946a29d790b/src/qrisp/circuit/pass_management/passes/fuse_adjacents.py#L434).
+Qrisp has no 0.9.9 tag. This link uses the commit that sets the version to 0.9.9.
+
+**Measurement:** the +1 probability changes from **almost 0% to 100%**.
+
+## Tools without a small-angle example
+
+We did not find a small-angle example above 99 pp for these tools.
+Their tolerances are too small, or each gate can lose only a very small angle.
+
+- **CUDA-Q 0.16.0:** `quake-simplify` removes rotations of 10⁻¹² or less.
+  Approximately 3×10¹² gates would be necessary to lose π.
+- **quilc 1.26.0:** a controlled phase below 2×10⁻⁵ loses its entangling part during compression.
+  Each gate loses at most approximately 10⁻⁵, so approximately 3×10⁵ gates would be necessary.
+  Long inputs of this type often stop with a "Could not find diagonalizer" error.
+- **MQT QMAP 3.10.0 / Core 3.10.1 and MQT Core 4.0.0:** the smallest tolerance is 10⁻¹² or less.
+  QMAP also changes a small controlled phase to a CNOT.
+  This is the same cause as the [MQT QMAP example](README.md#mqt-qmap-100-pp), so we do not repeat it here.

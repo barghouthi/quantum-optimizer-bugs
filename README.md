@@ -19,6 +19,11 @@ uv run bugs.py
 
 The quilc example needs Docker. Without Docker, the script skips it.
 
+> [!NOTE]
+> **Small-angle bugs:** [SMALL_ANGLES.md](SMALL_ANGLES.md) shows more examples that use only small angles.
+> Many small rotations add up to an almost completely flipped outcome.
+> Run them with `uv run moarbugs.py`.
+
 ## How bad are the outputs?
 
 For each example, prepare every qubit in `|+>`.
