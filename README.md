@@ -8,7 +8,6 @@
 
 Across many quantum SDKs and compilation tools, we find bugs that change expected measurement outcomes.
 This repository provides eleven OpenQASM examples that reproduce these errors.
-It also provides one additional MQT Core 4 example.
 Each example shows an almost completely flipped measurement outcome.
 
 Run buggy examples with the pinned dependencies:
@@ -20,7 +19,7 @@ uv run bugs.py
 The rest of the page describes these bugs.
 
 > [!NOTE]
-> **Small-angle bugs:** [SMALL_ANGLES.md](SMALL_ANGLES.md) shows more examples that use only small angles.
+> **Small-angle bugs:** [SMALL_ANGLES.md](SMALL_ANGLES.md) shows more bugs that use only small angles.
 > Many small rotations add up to an almost completely flipped outcome.
 > Run them with `uv run moarbugs.py`.
 
