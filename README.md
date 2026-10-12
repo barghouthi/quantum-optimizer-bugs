@@ -47,7 +47,7 @@ The error is the absolute probability difference, in **percentage points (pp)**:
 | quilc 1.26.0 (pyQuil's compiler) | 0% | 100% | **100 pp** | Floating-point addition |
 | MQT QMAP 3.10.0 / Core 3.10.1 | 0% | 100% | **100 pp** | Angle silently dropped |
 
-## Input and output for each tool
+## Input and output circuits for each tool
 
 The input gates below execute from left to right.
 `rz(a)` is a Z rotation by angle `a`, in radians.
