@@ -43,11 +43,6 @@ It reads each angle exactly and calculates both unitaries with 100-digit arithme
 Then it compares the unitaries up to global phase.
 Run `uv run individual_scripts/equivalence.py` to test the check on circuit pairs with known answers.
 
-We also tried [MQT QCEC](https://github.com/munich-quantum-toolkit/qcec) 3.10.1 as the equivalence checker, but it is not reliable for these inputs.
-With default settings, any circuit with `rz(1e17)` stops the process with an integer division by zero.
-With its ZX checker off, QCEC reports `p(80599999999716496)` as equivalent to `p(-3.1413486180563552)`.
-It also reports `rz(pi); rz(-1e16*pi)` as not equivalent to `rz(pi)`, because it reads `-1e16*pi` as a rounded 64-bit float.
-
 ## How bad are the bugs?
 
 For each example, prepare every qubit in `|+>`, apply the circuit, and measure `q[0]` in the X basis.
