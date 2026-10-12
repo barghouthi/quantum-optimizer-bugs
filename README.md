@@ -332,4 +332,8 @@ The script calculates each expected probability from the QASM input with exact a
 It does not use the tool under test for this calculation, and it rejects unsupported gates.
 It then compares this value with the probability from the tool's output circuit.
 
+## What's the solution?
+
+The best solution is to rely on symbolic, arbitrary precision arithmetic instead of floating point. For example, I recently did that for [tzap](https://github.com/qqq-wisc/tzap). Better yet, I believe that quantum software should formally verified.
+
 Released under the [MIT license](LICENSE).
