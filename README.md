@@ -24,7 +24,7 @@ The rest of the page describes these bugs.
 > Many small rotations add up to an almost completely flipped outcome.
 > Run them with `uv run moarbugs.py`.
 
-## How bad are the outputs?
+## How bad are the bugs?
 
 For each example, prepare every qubit in `|+>`.
 Apply the circuit. Then measure `q[0]` in the X basis.
