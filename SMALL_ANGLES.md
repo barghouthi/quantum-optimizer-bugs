@@ -2,7 +2,7 @@
 
 The examples in [README.md](README.md) mostly use very large angles.
 The examples on this page use only small angles.
-Each tool removes or changes small rotations because of a tolerance check.
+Tolerance checks and expression rewriting remove or change small rotations.
 Many small errors then add up to an almost completely flipped measurement outcome.
 
 Run all small-angle examples with the pinned dependencies:
@@ -22,7 +22,7 @@ Compare the expected probability of the **+1** outcome with the output probabili
 
 | Tool / tested version | Largest input angle | Input gates | Expected +1 probability | Output +1 probability | Error | Cause |
 |---|---:|---:|---:|---:|---:|---|
-| Qiskit 2.5.1 | 1.4×10⁻⁴ | 44,432 | 0% | 100% | **100 pp** | Two-qubit synthesis treats near-identity gates as identity |
+| Qiskit 2.5.1 | 1.4×10⁻⁴ | 44,432 | 0% | 100% | **100 pp** | Two-qubit synthesis drops small entangling components |
 | PennyLane 0.45.1 | 9.0×10⁻³ | 353 | 0% | 100% | **100 pp** | Tolerance is 400 times larger than intended |
 | Cirq 1.7.0 | 1×10⁻⁵ | 300,003 | 0.500375% | 100% | **99.499625 pp** | Commutation check with a relative tolerance |
 | tket 2.18.5 | 6.1×10⁻¹⁰ | 47 | ≈0% | 99.836003% | **99.836003 pp** | Shortcut divides two values near zero |
@@ -55,14 +55,17 @@ Thus each `crz` applies a small phase to `q[0]`. The 44,430 phases add up to π.
 **Output:** two single-qubit gates on `q[1]` and `q[2]`, and no gate on `q[0]`,
 after `transpile(circuit, basis_gates=["cx", "u"])` with default settings.
 
-**Cause:** two-qubit synthesis treats each `crz` as identity.
+**Cause:** two-qubit synthesis drops the entangling component of each `crz`.
 The default transpiler resynthesizes each two-qubit block with exact synthesis.
 But the Weyl decomposition still uses a fidelity of 1 − 10⁻⁹ to classify the block.
-Each `crz` is within this fidelity of identity, so the synthesis emits no CNOT and loses the phase.
+The entangling component of each `crz` is within this fidelity of identity, so the synthesis emits no CNOT.
+The local factors survive: for this input angle, an isolated `crz(a)` becomes `rz(a/2)` on its target.
+This target rotation contributes only a global phase on the prepared `|0>` state, so the phase on `q[0]` is lost.
 The alternating targets prevent Qiskit from merging the `crz` gates first.
 See [the default fidelity](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/common.rs#L25),
 [its use in exact synthesis](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/basis_decomposer.rs#L651-L657),
-and [the identity check](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/weyl_decomposition.rs#L646-L668).
+[the identity check](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/weyl_decomposition.rs#L646-L668),
+and [the retained local factors](https://github.com/Qiskit/qiskit/blob/2.5.1/crates/synthesis/src/two_qubit_decompose/weyl_decomposition.rs#L712-L721).
 
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
@@ -79,7 +82,15 @@ The target `q[1]` is in `|1>`, so the 351 phases on `q[0]` add up to π.
 
 **Output:** 2,108 gates and no CNOT after `qml.transforms.unitary_to_rot`.
 All rotation angles in the output are 0.
-`qml.compile` and `qml.transforms.decompose` give the same result.
+`qml.compile` and `qml.transforms.decompose` also lose the phases when an explicit gate set forces decomposition of `QubitUnitary`:
+
+```python
+gate_set = {"RY", "RZ", "CNOT", "Hadamard", "PauliX"}
+qml.compile(tape, basis_set=gate_set)
+qml.transforms.decompose(tape, gate_set=gate_set)
+```
+
+Their default settings preserve `QubitUnitary` and the correct measurement probability.
 
 **Cause:** a tolerance check is 400 times larger than intended.
 The decomposition counts the CNOTs that a two-qubit unitary needs.
@@ -107,8 +118,8 @@ For the `|+>` input, the circuit applies `rz(3)` to `q[0]`.
 
 **Expected:** `rz(3)` on `q[0]`. The +1 probability is 0.500375%.
 
-**Output:** the two `cx` gates are next to each other, so they cancel,
-after `cirq.transformers.insertion_sort_transformer`.
+**Output:** all 300,003 gates remain after `cirq.transformers.insertion_sort_transformer`.
+The two `cx` gates become adjacent and cancel algebraically, leaving the rotations on `q[1]`.
 
 **Cause:** the commutation check uses a relative tolerance.
 The transformer moves the last `cx` to the left past each gate that commutes with it.
