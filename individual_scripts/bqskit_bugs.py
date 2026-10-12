@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["bqskit==1.2.1", "bqskitrs==0.4.1"]
+# dependencies = ["bqskit==1.2.1", "bqskitrs==0.4.1", "mpmath==1.3.0", "sympy==1.13.0"]
 # ///
 """Two BQSKit 1.2.1 bugs. Compile each OpenQASM 2 input and print the output.
 
@@ -10,12 +10,15 @@ The script prints those blocks as matrices.
 
 Usage: uv run bqskit_bugs.py
 """
+import mpmath as mp
 import numpy as np
 from bqskit import compile
 from bqskit.compiler import Compiler
 from bqskit.ir.lang.qasm2 import OPENQASM2Language
 from bqskit.passes import BlockConversionPass
 from bqskit.passes.processing.extract_diagonal import ExtractDiagonalPass
+
+from equivalence import check  # exact 100-digit check, in this folder
 
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
 
@@ -31,16 +34,20 @@ def extract_diagonal(source):
                 ExtractDiagonalPass(success_threshold=1e-12, instantiate_options={"seed": 75, "multistarts": 1}),
             ],
         )
-    lines = []
+    lines, gates = [], []  # printed text, and the gate list for the exact check
     for op in output:
         qubits = ",".join(f"q[{w}]" for w in op.location)
         if op.gate.name.startswith("VariableUnitaryGate"):
+            unitary = np.asarray(op.get_unitary())  # BQSKit's definition of the gate
             lines.append(f"// unitary on {qubits}:")
-            for row in np.asarray(op.get_unitary()):
+            for row in unitary:
                 lines.append("//   " + "  ".join(f"{z.real:+.6f}{z.imag:+.6f}j" for z in row))
+            gates.append(("unitary", [[mp.mpc(complex(z)) for z in row] for row in unitary], list(op.location)))
         else:
-            lines.append(f"{op.gate.qasm_name}{tuple(op.params) if op.params else ''} {qubits};")
-    return "\n".join(lines)
+            assert op.gate.qasm_name == "cx", op.gate
+            lines.append(f"cx {qubits};")
+            gates.append(("cx", [], list(op.location)))
+    return "\n".join(lines), gates
 
 
 def compile_level_2(source):
@@ -80,9 +87,14 @@ def show(text, limit=40):
     lines = text.strip().splitlines()
     if len(lines) > limit:
         lines = lines[:limit] + [f"// ... {len(lines) - limit} more lines"]
-    print("\n".join(lines) + "\n")
+    print("\n".join(lines))
 
 
 for name, (source, expected, optimize) in EXAMPLES.items():
     print(f"// {name}: {gate_count(source)} input gates; expected output {expected}", flush=True)
-    show(optimize(source))
+    output = optimize(source)
+    # optimize() returns the output text, or (text, circuit to check) when the
+    # tool's output format is not OpenQASM.
+    text, circuit = output if isinstance(output, tuple) else (output, output)
+    show(text)
+    print(check(source, circuit) + "\n", flush=True)

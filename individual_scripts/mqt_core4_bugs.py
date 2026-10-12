@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["mqt.core==4.0.0", "qiskit==2.5.1"]
+# dependencies = ["mqt.core==4.0.0", "qiskit==2.5.1", "mpmath==1.3.0", "sympy==1.13.0"]
 # ///
 """An MQT Core 4.0.0 angle bug. Compile the OpenQASM 3 input and print the optimized IR.
 
@@ -14,10 +14,13 @@ Usage: uv run mqt_core4_bugs.py
 from mqt.core import mlir
 from qiskit import qasm2
 
+from equivalence import check  # exact 100-digit check, in this folder
+
 
 def optimize(source):
     result = mlir.compile_program(source, output=mlir.OutputFormat.QCO_OPTIMIZED)
-    return f"// Optimized MLIR:\n{result.ir}\n// As OpenQASM 2:\n{qasm2.dumps(result.to_qiskit())}"
+    qasm = qasm2.dumps(result.to_qiskit())
+    return f"// Optimized MLIR:\n{result.ir}\n// As OpenQASM 2:\n{qasm}", qasm
 
 
 EXAMPLES = {
@@ -43,9 +46,14 @@ def show(text, limit=40):
     lines = text.strip().splitlines()
     if len(lines) > limit:
         lines = lines[:limit] + [f"// ... {len(lines) - limit} more lines"]
-    print("\n".join(lines) + "\n")
+    print("\n".join(lines))
 
 
 for name, (source, expected, optimize) in EXAMPLES.items():
     print(f"// {name}: {gate_count(source)} input gates; expected output {expected}", flush=True)
-    show(optimize(source))
+    output = optimize(source)
+    # optimize() returns the output text, or (text, circuit to check) when the
+    # tool's output format is not OpenQASM.
+    text, circuit = output if isinstance(output, tuple) else (output, output)
+    show(text)
+    print(check(source, circuit) + "\n", flush=True)

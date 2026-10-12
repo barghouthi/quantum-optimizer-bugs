@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["qbraid==0.12.1", "pyqasm==1.0.4"]
+# dependencies = ["qbraid==0.12.1", "pyqasm==1.0.4", "mpmath==1.3.0", "sympy==1.13.0"]
 # ///
 """Two qBraid 0.12.1 angle bugs. Convert each OpenQASM 2 input to IonQ JSON and print it.
 
@@ -17,6 +17,8 @@ from qbraid.runtime.ionq.provider import IonQProvider
 from qbraid.transpiler.conversions.qasm2.qasm2_to_qasm3 import qasm2_to_qasm3
 from qbraid.transpiler.conversions.qasm3.qasm3_to_ionq import qasm3_to_ionq
 
+from equivalence import check  # exact 100-digit check, in this folder
+
 warnings.filterwarnings("ignore", module="qbraid")
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
 
@@ -26,9 +28,16 @@ def ionq_lines(program):
     return "\n".join(lines + [json.dumps(gate) for gate in program["circuit"]])
 
 
+def ionq_qasm(program):
+    """The same IonQ gates as OpenQASM 2, for the exact check. Rotations are in radians."""
+    lines = [HEADER + f"qreg q[{program['qubits']}];"]
+    return "\n".join(lines + [f"{g['gate']}({g['rotation']!r}) q[{g['target']}];" for g in program["circuit"]])
+
+
 def qasm_to_ionq(source):
     # The QASM 3 path lowers u3 to IonQ rotations with PyQASM.
-    return ionq_lines(qasm3_to_ionq(qasm2_to_qasm3(source)))
+    program = qasm3_to_ionq(qasm2_to_qasm3(source))
+    return ionq_lines(program), ionq_qasm(program)
 
 
 def ionq_device(source):
@@ -36,7 +45,8 @@ def ionq_device(source):
     # Run these two steps offline on the IonQ simulator profile.
     provider = IonQProvider(api_key="offline")
     device = IonQDevice(provider._build_profile({"backend": "simulator", "qubits": 29}), provider.session)
-    return ionq_lines(device.prepare(device.transform(source)))
+    program = device.prepare(device.transform(source))
+    return ionq_lines(program), ionq_qasm(program)
 
 
 EXAMPLES = {
@@ -67,9 +77,14 @@ def show(text, limit=40):
     lines = text.strip().splitlines()
     if len(lines) > limit:
         lines = lines[:limit] + [f"// ... {len(lines) - limit} more lines"]
-    print("\n".join(lines) + "\n")
+    print("\n".join(lines))
 
 
 for name, (source, expected, optimize) in EXAMPLES.items():
     print(f"// {name}: {gate_count(source)} input gates; expected output {expected}", flush=True)
-    show(optimize(source))
+    output = optimize(source)
+    # optimize() returns the output text, or (text, circuit to check) when the
+    # tool's output format is not OpenQASM.
+    text, circuit = output if isinstance(output, tuple) else (output, output)
+    show(text)
+    print(check(source, circuit) + "\n", flush=True)

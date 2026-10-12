@@ -27,7 +27,7 @@ uv run slowbugs.py
 
 The [individual_scripts](individual_scripts/) folder has one short script for each tool.
 Each script reads the OpenQASM inputs of that tool's examples, runs the tool, and prints the output circuit.
-These scripts do not calculate probabilities. For example:
+Then it checks whether the output is equivalent to the input. For example:
 
 ```sh
 uv run individual_scripts/qrisp_bugs.py
@@ -37,6 +37,16 @@ Most scripts print OpenQASM 2. Some tools use other formats.
 The qBraid script prints IonQ JSON, the CUDA-Q script prints compiled QIR, and the quilc script prints Quil.
 The MQT Core 4 script prints MLIR and OpenQASM 2. The BQSKit script prints raw unitary blocks as matrices.
 The quilc script needs Docker.
+
+The equivalence check is in [equivalence.py](individual_scripts/equivalence.py). It does not use any tool under test.
+It reads each angle exactly and calculates both unitaries with 100-digit arithmetic.
+Then it compares the unitaries up to global phase.
+Run `uv run individual_scripts/equivalence.py` to test the check on circuit pairs with known answers.
+
+We also tried [MQT QCEC](https://github.com/munich-quantum-toolkit/qcec) 3.10.1 as the equivalence checker, but it is not reliable for these inputs.
+With default settings, any circuit with `rz(1e17)` stops the process with an integer division by zero.
+With its ZX checker off, QCEC reports `p(80599999999716496)` as equivalent to `p(-3.1413486180563552)`.
+It also reports `rz(pi); rz(-1e16*pi)` as not equivalent to `rz(pi)`, because it reads `-1e16*pi` as a rounded 64-bit float.
 
 ## How bad are the bugs?
 

@@ -1,13 +1,15 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["qiskit==2.5.1"]
+# dependencies = ["qiskit==2.5.1", "mpmath==1.3.0", "sympy==1.13.0"]
 # ///
 """Two Qiskit 2.5.1 angle bugs. Transpile each OpenQASM 2 input and print the output QASM.
 
 Usage: uv run qiskit_bugs.py
 """
 from qiskit import qasm2, transpile
+
+from equivalence import check  # exact 100-digit check, in this folder
 
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
 
@@ -51,9 +53,14 @@ def show(text, limit=40):
     lines = text.strip().splitlines()
     if len(lines) > limit:
         lines = lines[:limit] + [f"// ... {len(lines) - limit} more lines"]
-    print("\n".join(lines) + "\n")
+    print("\n".join(lines))
 
 
 for name, (source, expected, optimize) in EXAMPLES.items():
     print(f"// {name}: {gate_count(source)} input gates; expected output {expected}", flush=True)
-    show(optimize(source))
+    output = optimize(source)
+    # optimize() returns the output text, or (text, circuit to check) when the
+    # tool's output format is not OpenQASM.
+    text, circuit = output if isinstance(output, tuple) else (output, output)
+    show(text)
+    print(check(source, circuit) + "\n", flush=True)
