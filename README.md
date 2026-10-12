@@ -10,17 +10,22 @@ Across many quantum SDKs and compilation tools, we find many bugs that change ex
 This repository provides OpenQASM examples that reproduce these errors.
 Each example shows an almost completely flipped measurement outcome!
 
-The rest of the page describes some of these bugs.
-Run buggy examples with the pinned dependencies:
+This page focuses on bugs that are fast to reproduce.
+[SMALL_ANGLES.md](SMALL_ANGLES.md) covers the slower examples, where many small rotations add up to an almost completely flipped outcome.
+
+Run the fast examples with the pinned dependencies:
 
 ```sh
 uv run bugs.py
 ```
 
-> [!NOTE]
-> **Small-angle bugs:** [SMALL_ANGLES.md](SMALL_ANGLES.md) shows more bugs that use only small angles.
-> Many small rotations add up to an almost completely flipped outcome.
-> Run them with `uv run moarbugs.py`.
+Run the slower small-angle examples with the pinned dependencies:
+
+```sh
+uv run moarbugs.py
+```
+
+The Cirq and Qrisp small-angle examples take several minutes each.
 
 ## How bad are the bugs?
 
