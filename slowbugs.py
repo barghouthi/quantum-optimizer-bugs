@@ -148,37 +148,32 @@ def matrix(name, angles):
     raise ValueError(f"Unsupported reference gate: {name}")
 
 
-def ideal_probability(source):
-    """Exact 100-digit state-vector simulation of simple OpenQASM 2.
+def exact(value):
+    """Exact 100-digit value of a binary64 float, an integer, or a Fraction."""
+    from fractions import Fraction
 
-    The reference supports only the gates in `matrix` on a register named q.
-    It rejects any other statement instead of guessing.
+    value = Fraction(value)
+    return mp.mpf(value.numerator) / value.denominator
+
+
+def simulate(qubits, gates):
+    """Exact 100-digit state-vector simulation. Return P(+1) of X on q[0].
+
+    Every qubit starts in |+>. Each gate is (name, angles, wires) for a gate in
+    `matrix`, or ("unitary", rows, wires) for a raw matrix. The first wire is the MSB.
     """
-    import sympy as sp
-
-    qubits = int(re.search(r"qreg q\[(\d+)\];", source)[1])
     state = [mp.mpc(1) / mp.sqrt(2**qubits)] * (1 << qubits)  # |+...+>
     cache = {}
-    for statement in source.split(";"):
-        statement = " ".join(statement.split())
-        if not statement or re.fullmatch(
-            r'OPENQASM 2\.0|include "qelib1\.inc"|qreg q\[\d+\]', statement
-        ):
-            continue
-        gate = re.fullmatch(r"([a-z0-9]+)(?:\((.*)\))? (q\[\d+\](?: ?, ?q\[\d+\])*)", statement)
-        if not gate:
-            raise ValueError(f"Unsupported reference statement: {statement}")
-        key = (gate[1], gate[2])
-        if key not in cache:
-            angles = [
-                mp.mpf(str(sp.sympify(a, locals={"pi": sp.pi}, rational=True).evalf(110)))
-                for a in (gate[2].split(",") if gate[2] else [])
-            ]
-            cache[key] = matrix(gate[1], angles)
-        arity, m = cache[key]
-        wires = [int(q) for q in re.findall(r"q\[(\d+)\]", gate[3])]
-        if len(wires) != arity or len(set(wires)) != arity:
-            raise ValueError(f"Wrong gate arity: {statement}")
+    for name, angles, wires in gates:
+        if name == "unitary":
+            arity, m = len(wires), angles
+        else:
+            key = (name, tuple(angles))
+            if key not in cache:
+                cache[key] = matrix(name, list(angles))
+            arity, m = cache[key]
+        if len(wires) != arity or len(set(wires)) != arity or max(wires) >= qubits:
+            raise ValueError(f"Wrong gate wires: {name} {wires}")
         shifts = [qubits - 1 - w for w in wires]
         new = list(state)
         for basis in range(1 << qubits):
@@ -193,6 +188,72 @@ def ideal_probability(source):
         state = new
     half = len(state) // 2
     return sum(abs(state[k] + state[k + half]) ** 2 for k in range(half)) / 2
+
+
+def qubit_count(source):
+    return int(re.search(r"qreg q\[(\d+)\];", source)[1])
+
+
+def ideal_probability(source):
+    """Exact 100-digit reference for simple OpenQASM 2.
+
+    The reference supports only the gates in `matrix` on a register named q.
+    It rejects any other statement instead of guessing.
+    """
+    import sympy as sp
+
+    gates = []
+    angles = {}
+    for statement in source.split(";"):
+        statement = " ".join(statement.split())
+        if not statement or re.fullmatch(
+            r'OPENQASM 2\.0|include "qelib1\.inc"|qreg q\[\d+\]', statement
+        ):
+            continue
+        gate = re.fullmatch(r"([a-z0-9]+)(?:\((.*)\))? (q\[\d+\](?: ?, ?q\[\d+\])*)", statement)
+        if not gate:
+            raise ValueError(f"Unsupported reference statement: {statement}")
+        if gate[2] not in angles:
+            angles[gate[2]] = [
+                mp.mpf(str(sp.sympify(a, locals={"pi": sp.pi}, rational=True).evalf(110)))
+                for a in (gate[2].split(",") if gate[2] else [])
+            ]
+        wires = [int(q) for q in re.findall(r"q\[(\d+)\]", gate[3])]
+        gates.append((gate[1], angles[gate[2]], wires))
+    return simulate(qubit_count(source), gates)
+
+
+def float_inputs(source):
+    """Replace each angle with the exact value of the binary64 float a parser computes.
+
+    Parsers evaluate an angle such as 2*pi/44430 in binary64 arithmetic.
+    The reference on this source shows that the rounding does not explain an error.
+    """
+    import ast
+    import operator
+    from decimal import Decimal
+
+    operators = {
+        ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+        ast.Div: operator.truediv, ast.USub: operator.neg, ast.UAdd: operator.pos,
+    }
+
+    def evaluate(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.Name) and node.id == "pi":
+            return math.pi
+        if isinstance(node, ast.BinOp):
+            return operators[type(node.op)](evaluate(node.left), evaluate(node.right))
+        if isinstance(node, ast.UnaryOp):
+            return operators[type(node.op)](evaluate(node.operand))
+        raise ValueError(f"Unsupported angle expression: {ast.unparse(node)}")
+
+    def replace(match):
+        values = [evaluate(ast.parse(a, mode="eval").body) for a in match[1].split(",")]
+        return "(" + ",".join(format(Decimal(v), "f") for v in values) + ") "
+
+    return re.sub(r"\(([^()]*)\) (?=q\[)", replace, source)
 
 
 def output_probability(output):
@@ -221,8 +282,135 @@ def qiskit_load(source):
     return qasm2.loads(source)
 
 
+# Each converter reads a tool's output circuit as a gate list for `simulate`.
+# It never calls the tool's own matrix code. `matrix` rejects unknown gate names.
+
+
+def qiskit_gates(circuit):
+    """Qiskit's u and p are u3 and u1 in qelib1.inc. Global phase does not change P(+1)."""
+    names = {"u": "u3", "p": "u1", "cp": "cu1"}
+    return [
+        (
+            names.get(i.operation.name, i.operation.name),
+            [exact(float(a)) for a in i.operation.params],
+            [circuit.find_bit(q).index for q in i.qubits],
+        )
+        for i in circuit.data
+    ]
+
+
+def pennylane_gates(tape):
+    names = {
+        "RX": "rx", "RY": "ry", "RZ": "rz", "PhaseShift": "u1", "Hadamard": "h",
+        "PauliX": "x", "PauliY": "y", "PauliZ": "z", "CNOT": "cx", "CZ": "cz",
+    }
+    gates = []
+    for op in tape.operations:
+        angles = [exact(float(a)) for a in op.parameters]
+        wires = [int(w) for w in op.wires]
+        if op.name == "Rot":  # Rot(phi, theta, omega) applies RZ(phi), RY(theta), then RZ(omega)
+            gates += [("rz", angles[:1], wires), ("ry", angles[1:2], wires), ("rz", angles[2:], wires)]
+        elif op.name != "GlobalPhase":
+            gates.append((names.get(op.name, op.name), angles, wires))
+    return gates
+
+
+def cirq_gates(circuit):
+    import cirq
+
+    names = {cirq.H: "h", cirq.X: "x", cirq.Y: "y", cirq.Z: "z", cirq.CNOT: "cx", cirq.CZ: "cz"}
+    gates = []
+    for op in circuit.all_operations():
+        gate = op.gate
+        wires = [int(q.name.removeprefix("q_")) for q in op.qubits]  # QASM import names q_0, q_1, ...
+        if isinstance(gate, (cirq.Rx, cirq.Ry, cirq.Rz)):
+            gates.append((type(gate).__name__.lower(), [exact(gate._rads)], wires))
+        elif gate in names:
+            gates.append((names[gate], [], wires))
+        elif isinstance(gate, cirq.ZPowGate) and len(wires) == 1:  # u1 up to global phase
+            gates.append(("u1", [exact(gate.exponent) * mp.pi], wires))
+        else:
+            raise ValueError(f"Unsupported Cirq output gate: {gate!r}")
+    return gates
+
+
+def zx_gates(circuit):
+    """PyZX and QuiZX extract PyZX circuits. Phases are fractions of pi."""
+    names = {"HAD": "h", "NOT": "x", "Z": "z", "S": "s", "T": "t", "CNOT": "cx", "CZ": "cz"}
+    gates = []
+    for gate in circuit.gates:
+        name = type(gate).__name__
+        if name in ("ZPhase", "XPhase"):  # rz and rx up to global phase
+            rotation = {"ZPhase": "rz", "XPhase": "rx"}[name]
+            gates.append((rotation, [exact(gate.phase) * mp.pi], [gate.target]))
+        elif name in ("CNOT", "CZ"):
+            gates.append((names[name], [], [gate.control, gate.target]))
+        elif name in names:
+            suffix = "dg" if getattr(gate, "adjoint", False) else ""
+            gates.append((names[name] + suffix, [], [gate.target]))
+        else:
+            raise ValueError(f"Unsupported ZX output gate: {gate}")
+    return gates
+
+
+def tket_gates(circuit):
+    """tket angles are half-turns: multiply by pi."""
+    names = {
+        "Rx": "rx", "Ry": "ry", "Rz": "rz", "U1": "u1", "U3": "u3", "H": "h", "X": "x",
+        "Y": "y", "Z": "z", "S": "s", "Sdg": "sdg", "T": "t", "Tdg": "tdg", "CX": "cx", "CZ": "cz",
+    }
+    gates = []
+    for command in circuit:
+        kind = command.op.type.name
+        angles = [exact(float(a)) * mp.pi for a in command.op.params]
+        wires = [q.index[0] for q in command.qubits]
+        if kind == "TK1":  # TK1(a, b, c) = Rz(a) Rx(b) Rz(c), so Rz(c) acts first
+            gates += [("rz", angles[2:], wires), ("rx", angles[1:2], wires), ("rz", angles[:1], wires)]
+        elif kind != "Phase":
+            gates.append((names.get(kind, kind), angles, wires))
+    return gates
+
+
+def bqskit_gates(circuit):
+    names = {"RXGate": "rx", "RYGate": "ry", "RZGate": "rz", "U3Gate": "u3", "HGate": "h", "CNOTGate": "cx"}
+    gates = []
+    for op in circuit:
+        wires = list(op.location)
+        if op.gate.name.startswith("VariableUnitaryGate"):
+            # Real parts, then imaginary parts, row by row. BQSKit's own matrix
+            # moves this to the closest unitary. The check uses it unchanged.
+            size = 2 ** len(wires)
+            values = [exact(a) for a in op.params]
+            rows = [
+                [mp.mpc(values[r * size + c], values[size * size + r * size + c]) for c in range(size)]
+                for r in range(size)
+            ]
+            gates.append(("unitary", rows, wires))
+        else:
+            gates.append((names.get(op.gate.name, op.gate.name), [exact(a) for a in op.params], wires))
+    return gates
+
+
+def qrisp_gates(circuit):
+    gates = []
+    for i in circuit.data:
+        if i.op.name in ("qb_alloc", "qb_dealloc", "gphase"):
+            continue
+        gates.append((
+            {"p": "u1"}.get(i.op.name, i.op.name),
+            [exact(float(a)) for a in i.op.params],
+            [circuit.qubits.index(q) for q in i.qubits],
+        ))
+    return gates
+
+
+def ionq_gates(program):
+    """IonQ JSON gates with rotations in radians."""
+    return [(g["gate"], [exact(g["rotation"])], [g["target"]]) for g in program["circuit"]]
+
+
 def optimize(tool, source):
-    """Return the output's native matrix (or state) and gate count. All inputs are parsed QASM."""
+    """Return the output's native matrix, gate count, and gate list. All inputs are parsed QASM."""
     if tool == "qiskit":
         from qiskit import transpile
         from qiskit.quantum_info import Operator
@@ -233,7 +421,7 @@ def optimize(tool, source):
         assert len(angles) == 44430 and set(angles) == {2 * math.pi / 44430}
         output = transpile(circuit, basis_gates=["cx", "u"])
         # Qiskit matrices place q[0] in the least significant bit. Reorder to MSB.
-        return Operator(output).reverse_qargs().data, len(output.data)
+        return Operator(output).reverse_qargs().data, len(output.data), qiskit_gates(output)
     if tool == "pennylane":
         import pennylane as qml
         from qiskit.quantum_info import Operator
@@ -254,7 +442,7 @@ def optimize(tool, source):
                 matrix = Operator(i.operation).reverse_qargs().data
                 ops.append(qml.QubitUnitary(matrix, wires))
         output = qml.transforms.unitary_to_rot(qml.tape.QuantumScript(ops))[0][0]
-        return qml.matrix(output, wire_order=[0, 1]), len(output.operations)
+        return qml.matrix(output, wire_order=[0, 1]), len(output.operations), pennylane_gates(output)
     if tool == "cirq":
         import cirq
         from cirq.contrib.qasm_import import circuit_from_qasm
@@ -264,8 +452,10 @@ def optimize(tool, source):
         rotations = [op.gate for op in circuit.all_operations() if isinstance(op.gate, cirq.Rz)]
         assert len(rotations) == 300000 and {g._rads for g in rotations} == {1e-5}
         output = cirq.transformers.insertion_sort_transformer(circuit)
-        return output.unitary(qubit_order=sorted(circuit.all_qubits())), len(
-            list(output.all_operations())
+        return (
+            output.unitary(qubit_order=sorted(circuit.all_qubits())),
+            len(list(output.all_operations())),
+            cirq_gates(output),
         )
     if tool == "pyzx":
         from fractions import Fraction
@@ -278,7 +468,7 @@ def optimize(tool, source):
         assert len(phases) == 157
         assert set(phases) == {Fraction(0.01 / math.pi).limit_denominator(10**8)}
         output = zx.Circuit.from_graph(zx.teleport_reduce(circuit.to_graph()))
-        return output.to_matrix(), len(output.gates)
+        return output.to_matrix(), len(output.gates), zx_gates(output)
     if tool == "quizx":
         from fractions import Fraction
 
@@ -295,7 +485,7 @@ def optimize(tool, source):
         quizx.full_simp(graph)
         output = quizx.extract_circuit(graph)
         assert output.qubits == 1
-        return output.to_matrix(), len(output.gates)
+        return output.to_matrix(), len(output.gates), zx_gates(output)
     if tool == "tket":
         from pytket.passes import FullPeepholeOptimise
         from pytket.qasm import circuit_from_qasm_str
@@ -307,7 +497,7 @@ def optimize(tool, source):
         assert len(params) == len(literals) == 20
         assert all(abs(p - a) <= 1e-15 * a for p, a in zip(params, literals))
         FullPeepholeOptimise().apply(circuit)
-        return circuit.get_unitary(), circuit.n_gates
+        return circuit.get_unitary(), circuit.n_gates, tket_gates(circuit)
     if tool == "bqskit":
         from bqskit.compiler import Compiler
         from bqskit.ir.lang.qasm2 import OPENQASM2Language
@@ -331,7 +521,7 @@ def optimize(tool, source):
                     UnfoldPass(),
                 ],
             )
-        return output.get_unitary(), output.num_operations
+        return output.get_unitary(), output.num_operations, bqskit_gates(output)
     if tool == "qrisp":
         import numpy as np
         from qrisp import QuantumCircuit, QuantumVariable
@@ -345,7 +535,7 @@ def optimize(tool, source):
         output = variable.qs.compile()
         gates = [i for i in output.data if i.op.name != "qb_alloc"]
         # The compiled unitary is complex64; widen it before computing probabilities.
-        return np.asarray(output.get_unitary(), dtype=np.complex128), len(gates)
+        return np.asarray(output.get_unitary(), dtype=np.complex128), len(gates), qrisp_gates(output)
     if tool == "qbraid":
         import warnings
 
@@ -375,7 +565,7 @@ def optimize(tool, source):
             assert set(gate) == {"gate", "target", "rotation"}
             assert gate["gate"] == "rz"
             circuit.rz(gate["rotation"], gate["target"])
-        return Operator(circuit).data, len(output["circuit"])
+        return Operator(circuit).data, len(output["circuit"]), ionq_gates(output)
     raise ValueError(f"Unknown tool: {tool}")
 
 
@@ -387,16 +577,25 @@ def main():
         if selected and tool not in selected:
             continue
         print(f"\n{tool}\n  Input:    {description}", flush=True)
-        output, count = optimize(tool, source)
+        output, count, gates = optimize(tool, source)
         ideal = ideal_probability(source)
         actual = output_probability(output)
-        gates = "state only" if count is None else f"{count} gates"
-        print(f"  Expected: {expected}; output: {gates}")
+        print(f"  Expected: {expected}; output: {count} gate{'' if count == 1 else 's'}")
         print(
             f"  Measure X: expected {float(100 * ideal):.6f}% -> output {100 * actual:.6f}%"
         )
+        # Two independent checks. The reference simulates the output gates without
+        # the tool's matrix code. The expected value also holds for the exact
+        # binary64 angles that the tool gets.
+        simulated = simulate(qubit_count(source), gates)
+        rounded = ideal_probability(float_inputs(source))
+        print(
+            f"  Checks:   output gates in the reference {float(100 * simulated):.6f}%; "
+            f"expected with float angles {float(100 * rounded):.6f}%"
+        )
         error = float(100 * abs(ideal - actual))
-        reproduced = error > 99
+        checks = [abs(ideal - simulated), abs(rounded - simulated)]
+        reproduced = error > 99 and all(float(100 * e) > 99 for e in checks)
         reproduced_all &= reproduced
         print(f"  Error:    {error:.6f} percentage points")
         print(f"  Reproduced (>99 pp): {'yes' if reproduced else 'no'}")

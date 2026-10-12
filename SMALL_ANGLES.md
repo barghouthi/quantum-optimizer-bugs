@@ -16,7 +16,7 @@ The Cirq and Qrisp examples take several minutes each.
 
 ## How bad are the outputs?
 
-The protocol is the same as in [README.md](README.md#how-bad-are-the-outputs).
+The protocol is the same as in [README.md](README.md#how-bad-are-the-bugs).
 Prepare every qubit in `|+>`. Apply the circuit. Then measure `q[0]` in the X basis.
 Compare the expected probability of the **+1** outcome with the output probability.
 
@@ -36,6 +36,9 @@ All input angles are in radians.
 The script checks that each tool's import preserves every input angle before optimization.
 [slowbugs.py](slowbugs.py) calculates each expected probability with an exact state-vector simulation at 100-digit precision.
 This reference does not use the tool under test, and it rejects unsupported gates.
+The script also does the two checks in [README.md](README.md#how-the-results-are-checked).
+It calculates the expected probability again with the exact 64-bit floating-point angles.
+It also simulates the tool's output gates with the same reference.
 
 ## Input and output for each tool
 

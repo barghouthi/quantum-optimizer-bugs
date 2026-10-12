@@ -328,11 +328,20 @@ and [the normalization pass](https://github.com/munich-quantum-toolkit/core/blob
 **Measurement:** the +1 probability changes from **almost 100% to almost 0%**.
 MQT QMAP 3.10.0 requires MQT Core 3.10, so `bugs.py` runs this example in a separate environment.
 
-## How the expected probabilities are checked
+## How the results are checked
 
-The script calculates each expected probability from the QASM input with exact arithmetic and 100-digit precision.
-It does not use the tool under test for this calculation, and it rejects unsupported gates.
-It then compares this value with the probability from the tool's output circuit.
+For each example, the script prints the output gates and does three checks:
+
+1. **Expected probability.** The script calculates the expected probability from the QASM input with exact arithmetic and 100-digit precision.
+   It does not use the tool under test for this calculation, and it rejects unsupported gates.
+2. **Floating-point inputs.** A tool gets each angle as a 64-bit floating-point value.
+   The script replaces each angle with the exact value of this float. Then it calculates the expected probability again.
+   In all examples, the change is less than 10⁻¹⁴ pp. Input rounding does not cause the errors.
+3. **Output gates.** The script reads the gates of the tool's output circuit. It simulates these gates with the same exact reference.
+   This check does not use the tool's own matrix code.
+   For CUDA-Q, the script reads the gates from the compiled QIR.
+
+An example reproduces only if the error is more than 99 pp for the tool's own result and for both checks.
 
 ## What's the solution?
 
