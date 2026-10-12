@@ -27,6 +27,7 @@ Compare the expected probability of the **+1** outcome with the output probabili
 | Cirq 1.7.0 | 1×10⁻⁵ | 300,003 | 0.500375% | 100% | **99.499625 pp** | Commutation check with a relative tolerance |
 | tket 2.18.5 | 6.1×10⁻¹⁰ | 47 | ≈0% | 99.836003% | **99.836003 pp** | Shortcut divides two values near zero |
 | Qrisp 0.9.9 | 7×10⁻⁵ | 44,880 | ≈0% | 100% | **≈100 pp** | Two small rotations are cancelled as inverses |
+| qBraid 0.12.1 | 7.7×10⁻³ | 500 | 0% | ≈100% | **≈100 pp** | `a/b*pi` changes to `a/(b*pi)` |
 
 All input angles are in radians.
 The script checks that each tool's import preserves every input angle before optimization.
@@ -170,6 +171,33 @@ See [the inverse check](https://github.com/eclipse-qrisp/Qrisp/blob/c30b323ad935
 Qrisp has no 0.9.9 tag. This link uses the commit that sets the version to 0.9.9.
 
 **Measurement:** the +1 probability changes from **almost 0% to 100%**.
+
+### qBraid: approximately 100 pp
+
+```text
+rz(1/408*pi) q[0]   (454 times)
+rz(-pi/408) q[0]    (46 times)
+```
+
+All angles are ±π/408, approximately ±0.0077. They add up to π.
+
+**Expected:** rz(pi), equivalent to Z.
+
+**Output:** 454 rotations of `1/(408*pi)` and 46 correct rotations of `-pi/408`.
+They add up to approximately 0, so the output is almost identity.
+qBraid's IonQ device prepares the job with `transform` and then `prepare` before it submits it.
+The script runs these two steps offline.
+
+**Cause:** the angle rewriting ignores operator precedence.
+Before conversion to IonQ JSON, qBraid replaces `pi` in each angle with a decimal value.
+A regular expression takes only the operand next to `pi`, so `1/408*pi` becomes `1/(408*pi)`.
+Each affected angle becomes π² times too small.
+This bug does not depend on the size of the angle. For example, `rz(2/3*pi)` becomes `rz(0.2122)`.
+The same angle written as `pi/408` stays correct.
+See [the regular expression](https://github.com/qBraid/qBraid/blob/v0.12.1/qbraid/passes/qasm/compat.py#L229)
+and [its evaluation](https://github.com/qBraid/qBraid/blob/v0.12.1/qbraid/passes/qasm/compat.py#L253-L255).
+
+**Measurement:** the +1 probability changes from **0% to almost 100%**.
 
 ## Tools without a small-angle example
 

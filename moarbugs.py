@@ -59,6 +59,14 @@ def examples():
             "44880 x u3(7e-5,0,0) q[0], a Y rotation by 7e-5",
             "ry(3.1416), almost Y",
         ),
+        "qbraid": (
+            HEADER
+            + "qreg q[1];\n"
+            + "rz(1/408*pi) q[0];\n" * 454
+            + "rz(-pi/408) q[0];\n" * 46,
+            "454 x rz(1/408*pi); 46 x rz(-pi/408)",
+            "rz(pi), equivalent to Z",
+        ),
     }
 
 
@@ -262,6 +270,36 @@ def optimize(tool, source):
         gates = [i for i in output.data if i.op.name != "qb_alloc"]
         # The compiled unitary is complex64; widen it before computing probabilities.
         return np.asarray(output.get_unitary(), dtype=np.complex128), len(gates)
+    if tool == "qbraid":
+        import warnings
+
+        from qbraid.runtime.ionq.device import IonQDevice
+        from qbraid.runtime.ionq.provider import IonQProvider
+        from qiskit import QuantumCircuit
+        from qiskit.quantum_info import Operator
+
+        # Check the input independently before testing qBraid.
+        parsed = qiskit_load(source)
+        assert [i.operation.params[0] for i in parsed.data] == (
+            [math.pi / 408] * 454 + [-math.pi / 408] * 46
+        )
+        # IonQDevice.run applies transform() and then prepare() before it submits
+        # the job. Run these two steps offline on the IonQ simulator profile.
+        warnings.filterwarnings("ignore", module="qbraid")
+        provider = IonQProvider(api_key="offline")
+        device = IonQDevice(
+            provider._build_profile({"backend": "simulator", "qubits": 29}),
+            provider.session,
+        )
+        output = device.prepare(device.transform(source))
+        # Simulate the emitted IonQ rotations directly, without an optimizer.
+        # This fixture emits only RZ gates; reject anything else.
+        circuit = QuantumCircuit(output["qubits"])
+        for gate in output["circuit"]:
+            assert set(gate) == {"gate", "target", "rotation"}
+            assert gate["gate"] == "rz"
+            circuit.rz(gate["rotation"], gate["target"])
+        return Operator(circuit).data, len(output["circuit"])
     raise ValueError(f"Unknown tool: {tool}")
 
 
