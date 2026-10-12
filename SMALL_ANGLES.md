@@ -198,17 +198,3 @@ See [the regular expression](https://github.com/qBraid/qBraid/blob/v0.12.1/qbrai
 and [its evaluation](https://github.com/qBraid/qBraid/blob/v0.12.1/qbraid/passes/qasm/compat.py#L253-L255).
 
 **Measurement:** the +1 probability changes from **0% to almost 100%**.
-
-## Tools without a small-angle example
-
-We did not find a small-angle example above 99 pp for these tools.
-Their tolerances are too small, or each gate can lose only a very small angle.
-
-- **CUDA-Q 0.16.0:** `quake-simplify` removes rotations of 10⁻¹² or less.
-  Approximately 3×10¹² gates would be necessary to lose π.
-- **quilc 1.26.0:** a controlled phase below 2×10⁻⁵ loses its entangling part during compression.
-  Each gate loses at most approximately 10⁻⁵, so approximately 3×10⁵ gates would be necessary.
-  Long inputs of this type often stop with a "Could not find diagonalizer" error.
-- **MQT QMAP 3.10.0 / Core 3.10.1 and MQT Core 4.0.0:** the smallest tolerance is 10⁻¹² or less.
-  QMAP also changes a small controlled phase to a CNOT.
-  This is the same cause as the [MQT QMAP example](README.md#mqt-qmap-100-pp), so we do not repeat it here.
