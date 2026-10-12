@@ -357,7 +357,7 @@ def optimize(tool, source):
         # Check the input independently before testing qBraid.
         parsed = qiskit_load(source)
         assert [i.operation.params[0] for i in parsed.data] == (
-            [math.pi / 408] * 454 + [-math.pi / 408] * 46
+            [1 / 408 * math.pi] * 454 + [-math.pi / 408] * 46
         )
         # IonQDevice.run applies transform() and then prepare() before it submits
         # the job. Run these two steps offline on the IonQ simulator profile.
