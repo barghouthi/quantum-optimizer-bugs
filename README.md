@@ -29,14 +29,13 @@ The Cirq and Qrisp small-angle examples take several minutes each.
 
 ## How bad are the bugs?
 
-For each example, prepare every qubit in `|+>`.
-Apply the circuit. Then measure `q[0]` in the X basis.
-Compare the expected probability of the **+1** outcome with the output probability.
-In all examples below, the probability of measuring 1 effectively flips from 0% to 100%!
+For each example, prepare every qubit in `|+>`, apply the circuit, and measure `q[0]` in the X basis.
+Compare the ideal probability of the **+1** measurement outcome for the original input circuit with the probability for the optimized output circuit.
+In every example below, optimization almost completely flips this probability: from approximately 0% to 100%, or vice versa.
 
 The error is the absolute probability difference, in **percentage points (pp)**:
 
-| Tool / tested version | Expected +1 probability | Output +1 probability | Error | Cause |
+| Tool / tested version | Ideal input +1 probability | Optimized output +1 probability | Error | Cause |
 |---|---:|---:|---:|---|
 | Qiskit 2.5.1 | 0% | 100% | **100 pp** | Floating-point addition |
 | PennyLane 0.45.1 | 0% | 100% | **100 pp** | Floating-point addition |
