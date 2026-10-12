@@ -154,7 +154,7 @@ def ideal_probability(source):
     The reference supports only the gates in `matrix` on a register named q.
     It rejects any other statement instead of guessing.
     """
-    import sympy as sp  # not installed in the MQT Core 4 environment
+    import sympy as sp
 
     qubits = int(re.search(r"qreg q\[(\d+)\];", source)[1])
     state = [mp.mpc(1) / mp.sqrt(2**qubits)] * (1 << qubits)  # |+...+>

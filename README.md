@@ -268,6 +268,7 @@ See [the rewriting rules](https://github.com/quil-lang/quilc/blob/7aef642/src/co
 **Measurement:** the +1 probability changes from **0% to 100%**.
 
 The script runs quilc 1.26.0 from the official Docker image. It pins the image by digest.
+Without Docker, the script skips this example.
 Qiskit parses the QASM input. The script sends the parsed gates to quilc as Quil.
 We also built quilc 1.27.0, the latest release, from source. It gives the same result.
 
@@ -335,6 +336,6 @@ It then compares this value with the probability from the tool's output circuit.
 
 ## What's the solution?
 
-The best solution is to rely on symbolic, arbitrary precision arithmetic instead of floating point. For example, I recently did that for [tzap](https://github.com/qqq-wisc/tzap). Better yet, I believe that quantum software should formally verified.
+The best solution is to rely on symbolic, arbitrary precision arithmetic instead of floating point. For example, I recently did that for [tzap](https://github.com/qqq-wisc/tzap). Better yet, I believe that quantum software should be formally verified.
 
 Released under the [MIT license](LICENSE).
